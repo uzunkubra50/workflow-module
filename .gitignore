@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Sanal ortam
+venv/
+.venv/
+
+# Ortam değişkenleri — gerçek .env asla commit edilmez, şablon (.env.example) girer
+.env
+!.env.example
+
+# Django
+db.sqlite3
+db.sqlite3-journal
+*.log
+/staticfiles/
+/media/
+
+# Editör / IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
