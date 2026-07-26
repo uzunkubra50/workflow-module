@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'rest_framework',
     'workflow',
 ]
 
@@ -131,3 +132,19 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+
+# Django REST Framework
+# https://www.django-rest-framework.org/api-guide/settings/
+REST_FRAMEWORK = {
+    # Kimlik doğrulama: şimdilik SessionAuthentication — API, admin/tarayıcı ile aynı
+    # oturum çerezini kullanır, böylece giriş yapıp API'yi kolayca test edebiliriz.
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+    # Yetki: varsayılan olarak giriş yapmış kullanıcı zorunlu (güvenli varsayılan).
+    # Anonim erişim, ancak tek tek view'larda bilinçli olarak açılırsa mümkün olur.
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+}
