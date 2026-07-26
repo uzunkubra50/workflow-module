@@ -1,0 +1,23 @@
+# Sanal ortamlar — host'taki venv imaja sızmasın (imaj kendi bağımlılıklarını kurar)
+venv/
+.venv/
+
+# Versiyon kontrolü
+.git/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Ortam değişkenleri — container'a env_file ile aktarılıyor, imaja gömülmesin
+.env
+
+# Yerel veritabanı dosyaları
+*.sqlite3
+
+# Editör / IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store

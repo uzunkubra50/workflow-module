@@ -1,0 +1,43 @@
+services:
+  db:
+    image: postgres:16-alpine
+    # Değerler proje kökündeki .env'den ${...} ile interpolate edilir.
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    # Named volume: container silinse de veri kalır.
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # Host 5433 -> container 5432 (lokal Postgres 5432 ile çakışmasın).
+    ports:
+      - "5433:5432"
+    # Postgres gerçekten bağlantı kabul edene kadar "healthy" sayılmaz.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: .
+    command: python manage.py runserver 0.0.0.0:8000
+    # Kod canlı paylaşımı: migration dosyaları hem container'da hem diskte görünür.
+    volumes:
+      - .:/app
+    # Host 8001 -> container 8000.
+    ports:
+      - "8001:8000"
+    env_file:
+      - .env
+    # .env'deki POSTGRES_HOST=localhost'u ezer: container içinden Postgres'e
+    # servis adıyla (db) erişilir.
+    environment:
+      POSTGRES_HOST: db
+    # db "healthy" olana kadar backend başlamaz.
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
