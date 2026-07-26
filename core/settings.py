@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 import os
+from datetime import timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -47,11 +48,14 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'corsheaders',
     'workflow',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # CORS: olabildiğince üstte ve CommonMiddleware'den ÖNCE olmalı (paket dokümanı şart koşar).
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -137,9 +141,11 @@ STATIC_URL = 'static/'
 # Django REST Framework
 # https://www.django-rest-framework.org/api-guide/settings/
 REST_FRAMEWORK = {
-    # Kimlik doğrulama: şimdilik SessionAuthentication — API, admin/tarayıcı ile aynı
-    # oturum çerezini kullanır, böylece giriş yapıp API'yi kolayca test edebiliriz.
+    # Kimlik doğrulama: hem JWT hem Session.
+    # - JWT: React frontend'in ana yöntemi (Bearer token).
+    # - Session: admin/browsable API için aynı oturum çerezini kullanmaya devam eder.
     'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ],
     # Yetki: varsayılan olarak giriş yapmış kullanıcı zorunlu (güvenli varsayılan).
@@ -147,4 +153,22 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+}
+
+
+# CORS (geliştirme)
+# React dev sunucusunun (Vite, :5173) API'ye (:8001) tarayıcıdan erişmesine izin verir.
+CORS_ALLOWED_ORIGINS = [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+]
+# Çerez/oturum bilgisinin cross-origin isteklerde taşınmasına izin ver.
+CORS_ALLOW_CREDENTIALS = True
+
+
+# SimpleJWT
+# Geliştirme için access token'ı 60 dk yaptım ki sık sık login gerekmesin.
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),  # access kısa ömürlü
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),      # refresh uzun ömürlü
 }
