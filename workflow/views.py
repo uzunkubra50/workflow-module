@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from . import services
 from .models import WorkflowInstance, WorkflowTransition
 from .serializers import (
+    WorkflowActionSerializer,
     WorkflowInstanceCreateSerializer,
     WorkflowInstanceDetailSerializer,
     WorkflowInstanceListSerializer,
@@ -80,4 +81,13 @@ class WorkflowInstanceViewSet(
         serializer = WorkflowInstanceDetailSerializer(
             instance, context=self.get_serializer_context()
         )
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['get'], url_path='actions')
+    def actions(self, request, pk=None):
+        """Bu instance'ın işlem geçmişini (audit trail) kronolojik döndürür — 2.3 ekranı için."""
+        instance = self.get_object()
+        # related_name='actions'; en eski -> en yeni sırayla.
+        actions = instance.actions.all().order_by('created_at')
+        serializer = WorkflowActionSerializer(actions, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
