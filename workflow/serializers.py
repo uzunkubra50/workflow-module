@@ -65,3 +65,23 @@ class WorkflowInstanceDetailSerializer(WorkflowInstanceListSerializer):
     def get_available_transitions(self, obj):
         transitions = get_available_transitions(obj)
         return WorkflowTransitionSerializer(transitions, many=True).data
+
+
+# 3.1 Sürece bağlama / yeni iş başlatma — YAZMA amaçlı (create body'sini kabul eder).
+# Okuma serializer'ları FK'leri id yerine AD olarak salt okuma gösterdiği için, create'te
+# definition/current_step'in yazılabilir olması gerekiyor; bu yüzden ayrı bir serializer.
+class WorkflowInstanceCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WorkflowInstance
+        # definition & current_step -> yazılabilir PrimaryKeyRelatedField (zorunlu FK).
+        # status default 'active', document_ref/assigned_to opsiyonel.
+        fields = [
+            'id',
+            'definition',
+            'current_step',
+            'subject',
+            'status',
+            'document_ref',
+            'assigned_to',
+        ]
+        read_only_fields = ['id']
