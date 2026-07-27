@@ -7,13 +7,28 @@ import 'antd/dist/reset.css' // Ant Design CSS reset — tarayıcı varsayılan 
 import './index.css'
 import App from './App.jsx'
 
-// ConfigProvider: Ant Design'ın genel ayarları.
-// - locale={trTR}: bileşen metinleri Türkçe (tablo "veri yok", tarih seçici, onay vb.).
-// - theme.token.colorPrimary: kurumsal birincil renk (antd varsayılanı zaten #1677ff;
-//   burada açıkça belirtiyoruz ki ileride tek yerden değiştirilebilsin).
+// ConfigProvider: Ant Design'ın genel ayarları (locale + tema).
+// - locale={trTR}: bileşen metinleri Türkçe.
+// - Tema kurumsal lacivert üzerine kurulu; tüm bileşenler bu token'ları devralır.
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <ConfigProvider locale={trTR} theme={{ token: { colorPrimary: '#1677ff' } }}>
+    <ConfigProvider
+      locale={trTR}
+      theme={{
+        token: {
+          colorPrimary: '#1e3a5f', // kurumsal lacivert — birincil renk (butonlar, linkler)
+          borderRadius: 8, // hafif yuvarlak köşeler — modern his
+          fontSize: 14,
+          colorBgLayout: '#f0f2f5', // sayfa/layout arka planı: hafif gri
+        },
+        components: {
+          // Header: lacivertin koyu tonu (eski sabit #001529 yerine temayla uyumlu).
+          Layout: { headerBg: '#0f2540' },
+          // Kartlar biraz daha yuvarlak (daha yumuşak görünüm).
+          Card: { borderRadiusLG: 12 },
+        },
+      }}
+    >
       <BrowserRouter>
         <App />
       </BrowserRouter>

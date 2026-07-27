@@ -1,19 +1,32 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Alert,
   Button,
+  Card,
+  Col,
+  Empty,
   Form,
   Input,
   Modal,
+  Row,
+  Segmented,
   Select,
   Spin,
+  Statistic,
   Table,
   Tag,
   Typography,
   message,
 } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
+import {
+  ApartmentOutlined,
+  CheckCircleOutlined,
+  ClockCircleOutlined,
+  CloseCircleOutlined,
+  PlusOutlined,
+  ProfileOutlined,
+} from '@ant-design/icons'
 import api from '../api.js'
 
 const { Title } = Typography
@@ -25,10 +38,37 @@ const STATUS_COLORS = {
   cancelled: 'red',
 }
 
+// status koduna göre Tag ikonu (renklerle aynı anlam).
+const STATUS_ICONS = {
+  active: <ClockCircleOutlined />,
+  completed: <CheckCircleOutlined />,
+  cancelled: <CloseCircleOutlined />,
+}
+
+// Kartlara/tabloya hafif derinlik hissi veren ortak gölge.
+const CARD_SHADOW = '0 1px 4px rgba(0, 0, 0, 0.08)'
+
 // Tablo sütunları. Bileşen dışında sabit tanımlı — her render'da yeniden üretilmez.
 const columns = [
-  { title: 'Konu', dataIndex: 'subject', key: 'subject' },
-  { title: 'Süreç', dataIndex: 'definition', key: 'definition' },
+  {
+    title: 'Konu',
+    dataIndex: 'subject',
+    key: 'subject',
+    // Konu biraz vurgulu.
+    render: (value) => <span style={{ fontWeight: 500 }}>{value}</span>,
+  },
+  {
+    title: 'Süreç',
+    dataIndex: 'definition',
+    key: 'definition',
+    // Süreç adının başında soluk bir hiyerarşi ikonu.
+    render: (value) => (
+      <span>
+        <ApartmentOutlined style={{ color: 'rgba(0,0,0,0.25)', marginRight: 6 }} />
+        {value}
+      </span>
+    ),
+  },
   { title: 'Mevcut Adım', dataIndex: 'current_step', key: 'current_step' },
   {
     title: 'Belge',
@@ -41,16 +81,23 @@ const columns = [
     title: 'Durum',
     dataIndex: 'status_display',
     key: 'status',
-    // Renk status koduna (active/completed/cancelled) göre; metin status_display'den.
-    render: (text, record) => <Tag color={STATUS_COLORS[record.status]}>{text}</Tag>,
+    // Renk + ikon status koduna göre; metin status_display'den.
+    render: (text, record) => (
+      <Tag icon={STATUS_ICONS[record.status]} color={STATUS_COLORS[record.status]}>
+        {text}
+      </Tag>
+    ),
   },
 ]
 
-// 2.1 İş Akışlarım (liste) + 3.1 Yeni İş Başlatma (modal).
+// 2.1 İş Akışlarım (liste + istatistik + filtre) + 3.1 Yeni İş Başlatma (modal).
 function InstanceListPage() {
   const [instances, setInstances] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+
+  // Client-side durum filtresi (yeni API çağrısı yapmaz; sadece görüntülemeyi süzer).
+  const [statusFilter, setStatusFilter] = useState('all')
 
   // 3.1 Yeni iş modalı ile ilgili state'ler.
   const [createModalOpen, setCreateModalOpen] = useState(false)
@@ -61,7 +108,6 @@ function InstanceListPage() {
   const navigate = useNavigate()
 
   // Liste verisini çek. useCallback ile sabit referans — hem mount'ta hem create sonrası kullanılır.
-  // setState'ler await SONRASINDA (senkron değil); başlangıç spinner'ı loading initial true'dan gelir.
   const fetchInstances = useCallback(async () => {
     try {
       const response = await api.get('/api/instances/')
@@ -82,6 +128,22 @@ function InstanceListPage() {
     }
     run()
   }, [fetchInstances])
+
+  // İstatistikler — instances'tan türetilir (yalnızca veri değişince yeniden hesaplanır).
+  const stats = useMemo(() => {
+    return {
+      total: instances.length,
+      active: instances.filter((i) => i.status === 'active').length,
+      completed: instances.filter((i) => i.status === 'completed').length,
+      cancelled: instances.filter((i) => i.status === 'cancelled').length,
+    }
+  }, [instances])
+
+  // Tabloda gösterilecek (filtrelenmiş) veri. Orijinal instances bozulmaz.
+  const filteredInstances = useMemo(() => {
+    if (statusFilter === 'all') return instances
+    return instances.filter((i) => i.status === statusFilter)
+  }, [instances, statusFilter])
 
   // "Yeni İş Başlat" tıklanınca: modalı aç ve süreçleri (henüz çekilmediyse) çek.
   async function openCreateModal() {
@@ -107,7 +169,6 @@ function InstanceListPage() {
   async function handleCreate() {
     let values
     try {
-      // Zorunlu alanlar geçmezse validateFields reject eder; hatalar formda görünür.
       values = await form.validateFields()
     } catch {
       return
@@ -125,8 +186,7 @@ function InstanceListPage() {
       message.success('Yeni iş başlatıldı.')
       await fetchInstances() // liste yenilensin, yeni iş görünsün
     } catch (err) {
-      // DRF çeşitli hata biçimleri döndürebilir: düz liste (["..."]),
-      // {detail}, {non_field_errors:[...]} ya da düz string.
+      // DRF çeşitli hata biçimleri döndürebilir.
       const data = err.response?.data
       let msg = 'İş oluşturulamadı.'
       if (Array.isArray(data) && data.length) {
@@ -156,16 +216,23 @@ function InstanceListPage() {
     return <Alert type="error" message={error} showIcon />
   }
 
-  // Veri geldi: başlık + "Yeni İş" butonu + tablo + modal.
+  // İstatistik kartı yapılandırması (renk + ikon).
+  const statCards = [
+    { title: 'Toplam İş', value: stats.total, icon: <ProfileOutlined />, color: '#1e3a5f' },
+    { title: 'Aktif', value: stats.active, icon: <ClockCircleOutlined />, color: '#1677ff' },
+    { title: 'Tamamlanan', value: stats.completed, icon: <CheckCircleOutlined />, color: '#3f8600' },
+    { title: 'İptal', value: stats.cancelled, icon: <CloseCircleOutlined />, color: '#cf1322' },
+  ]
+
   return (
     <>
-      {/* Başlık solda, "Yeni İş Başlat" butonu sağda (aynı satır). */}
+      {/* d) Başlık bandı: solda başlık, sağda "Yeni İş Başlat". */}
       <div
         style={{
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          marginBottom: 16,
+          marginBottom: 24,
         }}
       >
         <Title level={3} style={{ margin: 0 }}>
@@ -176,16 +243,57 @@ function InstanceListPage() {
         </Button>
       </div>
 
-      <Table
-        columns={columns}
-        dataSource={instances}
-        rowKey="id"
-        // Satıra tıklayınca detaya git + tıklanabilir imleç.
-        onRow={(record) => ({
-          onClick: () => navigate(`/instances/${record.id}`),
-          style: { cursor: 'pointer' },
-        })}
-      />
+      {/* a) İstatistik kartları (responsive). */}
+      <Row gutter={16} style={{ marginBottom: 16 }}>
+        {statCards.map((s) => (
+          <Col xs={24} sm={12} md={6} key={s.title}>
+            <Card size="small" style={{ boxShadow: CARD_SHADOW }}>
+              <Statistic
+                title={s.title}
+                value={s.value}
+                prefix={<span style={{ color: s.color }}>{s.icon}</span>}
+                valueStyle={{ color: s.color }}
+              />
+            </Card>
+          </Col>
+        ))}
+      </Row>
+
+      {/* b) Durum filtresi (client-side). */}
+      <div style={{ marginBottom: 16 }}>
+        <Segmented
+          value={statusFilter}
+          onChange={setStatusFilter}
+          options={[
+            { label: 'Tümü', value: 'all' },
+            { label: 'Aktif', value: 'active' },
+            { label: 'Tamamlanan', value: 'completed' },
+          ]}
+        />
+      </div>
+
+      {/* c) Tablo — beyaz kart hissi (gölge + yuvarlak köşe). */}
+      <div
+        style={{
+          background: '#fff',
+          borderRadius: 12,
+          boxShadow: CARD_SHADOW,
+          overflow: 'hidden',
+        }}
+      >
+        <Table
+          columns={columns}
+          dataSource={filteredInstances}
+          rowKey="id"
+          // Filtre sonucu boşsa özel boş durum.
+          locale={{ emptyText: <Empty description="Bu filtrede iş yok" /> }}
+          // Satıra tıklayınca detaya git + tıklanabilir imleç.
+          onRow={(record) => ({
+            onClick: () => navigate(`/instances/${record.id}`),
+            style: { cursor: 'pointer' },
+          })}
+        />
+      </div>
 
       {/* 3.1 Yeni İş Başlatma modalı */}
       <Modal

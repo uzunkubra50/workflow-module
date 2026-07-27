@@ -1,7 +1,11 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Alert, Button, Card, Form, Input, Typography } from 'antd'
-import { LockOutlined, UserOutlined } from '@ant-design/icons'
+import {
+  DeploymentUnitOutlined,
+  LockOutlined,
+  UserOutlined,
+} from '@ant-design/icons'
 import { login } from '../api.js'
 
 const { Title } = Typography
@@ -29,20 +33,25 @@ function LoginPage() {
   }
 
   return (
-    // Sayfayı dikey + yatay ortala, hafif gri arka plan.
+    // Sayfayı dikey + yatay ortala; temayla uyumlu, sade lacivert-gri gradient arka plan.
     <div
       style={{
         minHeight: '100vh',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: '#f0f2f5',
+        background: 'linear-gradient(135deg, #eef1f6 0%, #f0f2f5 50%, #e6ecf3 100%)',
       }}
     >
-      <Card style={{ width: 360 }}>
-        <Title level={3} style={{ textAlign: 'center', marginBottom: 24 }}>
-          İş Akışı Modülü
-        </Title>
+      {/* Kart: biraz genişçe + yumuşak gölge, ortada şık dursun. */}
+      <Card style={{ width: 400, boxShadow: '0 8px 24px rgba(15, 37, 64, 0.12)' }}>
+        {/* Marka / logo hissi: büyük lacivert ikon + başlık. */}
+        <div style={{ textAlign: 'center', marginBottom: 24 }}>
+          <DeploymentUnitOutlined style={{ fontSize: 44, color: '#1e3a5f' }} />
+          <Title level={3} style={{ marginTop: 12, marginBottom: 0 }}>
+            İş Akışı Modülü
+          </Title>
+        </div>
 
         {/* Hata varsa formun üstünde göster. */}
         {error && (
@@ -74,6 +83,18 @@ function LoginPage() {
             </Button>
           </Form.Item>
         </Form>
+
+        {/* Soluk dipnot. */}
+        <div
+          style={{
+            textAlign: 'center',
+            marginTop: 16,
+            color: 'rgba(0, 0, 0, 0.35)',
+            fontSize: 12,
+          }}
+        >
+          © 2026 İş Akışı Modülü
+        </div>
       </Card>
     </div>
   )
