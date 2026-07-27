@@ -14,6 +14,7 @@ Modül belirli bir arşiv sistemine bağımlı değildir; istenirse bağlantı n
 | Backend | Django 6 + Django REST Framework |
 | Veritabanı | PostgreSQL 16 |
 | Kimlik doğrulama | JWT (SimpleJWT) + Session (admin için) |
+| API dokümantasyonu | drf-spectacular (Swagger UI + Redoc) |
 | Frontend | React 19 + Vite + Ant Design |
 | Altyapı | Docker + docker compose |
 
@@ -85,6 +86,7 @@ En az bir adımın `is_start` işaretli olması gerekir; yeni işler o adımdan 
 | Frontend | http://localhost:5173 |
 | Backend API | http://localhost:8001 |
 | Django admin | http://localhost:8001/admin/ |
+| Swagger UI | http://localhost:8001/api/docs/ |
 | PostgreSQL | localhost:5433 |
 
 ## API
@@ -104,6 +106,20 @@ Tüm `/api/` uçları kimlik doğrulama gerektirir (`Authorization: Bearer <acce
 
 İş akışı bütünlüğü için `PUT`/`PATCH`/`DELETE` uçları **bilinçli olarak yoktur** — bir iş
 yalnızca tanımlı geçişlerle ilerleyebilir.
+
+### API Dokümantasyonu (Swagger / Redoc)
+
+Uçları taramak ve canlı denemek için:
+
+| Adres | Açıklama |
+|---|---|
+| `/api/docs/` | Swagger UI — "Try it out" ile canlı istek atma |
+| `/api/redoc/` | Redoc — okunması daha rahat, dokümantasyon görünümü |
+| `/api/schema/` | Ham OpenAPI 3 şeması (Postman/Insomnia'ya import edilebilir) |
+
+Korumalı uçları Swagger'da denemek için: `POST /api/token/` ile giriş yapıp dönen
+`access` değerini sayfanın üstündeki **Authorize** düğmesine `Bearer <access_token>`
+biçiminde girin.
 
 ## Ekranlar
 
