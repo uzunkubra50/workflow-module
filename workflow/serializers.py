@@ -1,6 +1,12 @@
 from rest_framework import serializers
 
-from .models import WorkflowAction, WorkflowInstance, WorkflowTransition
+from .models import (
+    WorkflowAction,
+    WorkflowDefinition,
+    WorkflowInstance,
+    WorkflowStep,
+    WorkflowTransition,
+)
 from .services import get_available_transitions
 
 
@@ -68,20 +74,53 @@ class WorkflowInstanceDetailSerializer(WorkflowInstanceListSerializer):
 
 
 # 3.1 Sürece bağlama / yeni iş başlatma — YAZMA amaçlı (create body'sini kabul eder).
-# Okuma serializer'ları FK'leri id yerine AD olarak salt okuma gösterdiği için, create'te
-# definition/current_step'in yazılabilir olması gerekiyor; bu yüzden ayrı bir serializer.
+# Kullanıcı yalnızca definition + subject (+ opsiyonel document_ref/assigned_to) gönderir.
+# current_step ve status kullanıcıdan ALINMAZ; backend belirler (Yol C: başlangıç adımı otomatik).
 class WorkflowInstanceCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = WorkflowInstance
-        # definition & current_step -> yazılabilir PrimaryKeyRelatedField (zorunlu FK).
-        # status default 'active', document_ref/assigned_to opsiyonel.
         fields = [
             'id',
             'definition',
-            'current_step',
             'subject',
-            'status',
             'document_ref',
             'assigned_to',
         ]
         read_only_fields = ['id']
+
+    def create(self, validated_data):
+        definition = validated_data['definition']
+        # Yol C: seçilen sürecin is_start=True adımını bul ve current_step olarak ata.
+        start_step = WorkflowStep.objects.filter(
+            definition=definition, is_start=True
+        ).first()
+        if start_step is None:
+            raise serializers.ValidationError(
+                'Bu süreç için başlangıç adımı (is_start) tanımlı değil.'
+            )
+        # Yeni iş her zaman aktif ve başlangıç adımında başlar.
+        return WorkflowInstance.objects.create(
+            current_step=start_step,
+            status=WorkflowInstance.Status.ACTIVE,
+            **validated_data,
+        )
+
+
+# --- Süreç dropdown'ı için hafif, salt okuma serializer'ları (frontend "Yeni İş" formu) ---
+
+
+# Bir sürecin adımlarını sade göstermek için (opsiyonel; ihtiyaç olursa kullanılır).
+class WorkflowStepSimpleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WorkflowStep
+        fields = ['id', 'name', 'order']
+
+
+# GET /api/definitions/ — dropdown name gösterir, id gönderir.
+class WorkflowDefinitionSerializer(serializers.ModelSerializer):
+    # unit nullable FK; id yerine okunabilir ad (unit yoksa None).
+    unit = serializers.CharField(source='unit.name', read_only=True)
+
+    class Meta:
+        model = WorkflowDefinition
+        fields = ['id', 'name', 'code', 'unit', 'is_active']

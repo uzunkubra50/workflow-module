@@ -5,9 +5,10 @@ from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
 from . import services
-from .models import WorkflowInstance, WorkflowTransition
+from .models import WorkflowDefinition, WorkflowInstance, WorkflowTransition
 from .serializers import (
     WorkflowActionSerializer,
+    WorkflowDefinitionSerializer,
     WorkflowInstanceCreateSerializer,
     WorkflowInstanceDetailSerializer,
     WorkflowInstanceListSerializer,
@@ -91,3 +92,13 @@ class WorkflowInstanceViewSet(
         actions = instance.actions.all().order_by('created_at')
         serializer = WorkflowActionSerializer(actions, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class WorkflowDefinitionViewSet(viewsets.ReadOnlyModelViewSet):
+    """Süreç tanımları — salt okuma (list + retrieve).
+
+    Frontend'in "Yeni İş" formundaki dropdown'ı için. Yalnızca aktif süreçler döner.
+    """
+
+    queryset = WorkflowDefinition.objects.filter(is_active=True)
+    serializer_class = WorkflowDefinitionSerializer
