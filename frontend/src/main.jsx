@@ -20,6 +20,9 @@ createRoot(document.getElementById('root')).render(
           borderRadius: 8, // hafif yuvarlak köşeler — modern his
           fontSize: 14,
           colorBgLayout: '#f0f2f5', // sayfa/layout arka planı: hafif gri
+          // Govde + baslik fontu: Inter (index.html'de yuklendi), sistem fontlarina fallback.
+          fontFamily:
+            "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
         },
         components: {
           // Header: lacivertin koyu tonu (eski sabit #001529 yerine temayla uyumlu).

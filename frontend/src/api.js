@@ -83,12 +83,15 @@ export async function login(username, password) {
   const { data } = await api.post('/api/token/', { username, password });
   localStorage.setItem('access_token', data.access);
   localStorage.setItem('refresh_token', data.refresh);
+  // Kullanıcı adını da sakla — AppLayout'taki avatar/dropdown'da göstermek için.
+  localStorage.setItem('username', username);
   return true;
 }
 
-// logout: yerel token'ları siler (sunucuya istek göndermez).
+// logout: yerel token'ları (+ kullanıcı adını) siler (sunucuya istek göndermez).
 export function logout() {
   clearTokens();
+  localStorage.removeItem('username');
 }
 
 export default api;

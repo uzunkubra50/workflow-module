@@ -11,10 +11,51 @@ body,
 body {
   min-height: 100vh;
   font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  /* Daha net/yumuşak font render (özellikle WebKit tabanlı tarayıcılarda). */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* Uygulama tam ekran: ortalama, max-width ve kenar çizgisi kısıtı YOK. */
 #root {
   width: 100%;
   min-height: 100vh;
+}
+
+/* --- Mikro-etkileşimler: antd bileşenlerine hafif hover/geçiş hissi --- */
+
+/* Kartlar: hover'da hafifçe yukarı kalkma + gölge artışı (derinlik hissi). */
+.ant-card {
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+.ant-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  transform: translateY(-2px);
+}
+
+/* Butonlar: hover/active geçişleri yumuşasın. */
+.ant-btn {
+  transition: all 0.2s ease;
+}
+
+/* Tablo satırları: hover arka plan rengini antd zaten veriyor, biz sadece geçişi
+   yumuşatıyoruz. Arka plan aslında hücrelerde (td) değiştiği için ikisini de hedefliyoruz. */
+.ant-table-row {
+  transition: background-color 0.2s ease;
+}
+.ant-table-tbody > tr.ant-table-row > td {
+  transition: background-color 0.2s ease;
+}
+
+/* Sayfa içeriği için basit bir fade-in tanımı. Şimdilik yalnızca TANIMLI —
+   route değişiminde otomatik uygulamak ayrı (ve daha karmaşık) bir sonraki adım. */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

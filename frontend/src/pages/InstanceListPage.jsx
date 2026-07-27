@@ -216,12 +216,36 @@ function InstanceListPage() {
     return <Alert type="error" message={error} showIcon />
   }
 
-  // İstatistik kartı yapılandırması (renk + ikon).
+  // İstatistik kartı yapılandırması: ikon rengi (koyu ton) + dairenin soluk zemin rengi.
   const statCards = [
-    { title: 'Toplam İş', value: stats.total, icon: <ProfileOutlined />, color: '#1e3a5f' },
-    { title: 'Aktif', value: stats.active, icon: <ClockCircleOutlined />, color: '#1677ff' },
-    { title: 'Tamamlanan', value: stats.completed, icon: <CheckCircleOutlined />, color: '#3f8600' },
-    { title: 'İptal', value: stats.cancelled, icon: <CloseCircleOutlined />, color: '#cf1322' },
+    {
+      title: 'Toplam İş',
+      value: stats.total,
+      icon: <ProfileOutlined />,
+      color: '#1e3a5f',
+      bgColor: '#eef1f6',
+    },
+    {
+      title: 'Aktif',
+      value: stats.active,
+      icon: <ClockCircleOutlined />,
+      color: '#1677ff',
+      bgColor: '#e6f4ff',
+    },
+    {
+      title: 'Tamamlanan',
+      value: stats.completed,
+      icon: <CheckCircleOutlined />,
+      color: '#3f8600',
+      bgColor: '#f6ffed',
+    },
+    {
+      title: 'İptal',
+      value: stats.cancelled,
+      icon: <CloseCircleOutlined />,
+      color: '#cf1322',
+      bgColor: '#fff1f0',
+    },
   ]
 
   return (
@@ -243,24 +267,42 @@ function InstanceListPage() {
         </Button>
       </div>
 
-      {/* a) İstatistik kartları (responsive). */}
-      <Row gutter={16} style={{ marginBottom: 16 }}>
+      {/* a) İstatistik kartları (responsive). Yatay+dikey gutter: mobilde alt alta
+          dizilince kartlar arasında da bosluk kalsin. */}
+      <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         {statCards.map((s) => (
           <Col xs={24} sm={12} md={6} key={s.title}>
             <Card size="small" style={{ boxShadow: CARD_SHADOW }}>
-              <Statistic
-                title={s.title}
-                value={s.value}
-                prefix={<span style={{ color: s.color }}>{s.icon}</span>}
-                valueStyle={{ color: s.color }}
-              />
+              {/* Solda renkli ikon dairesi, sağda Statistic (başlık üstte, değer altta —
+                  Statistic'in kendi varsayılan dikey düzeni zaten bunu sağlıyor). */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                <div
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: '50%',
+                    background: s.bgColor,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
+                >
+                  <span style={{ color: s.color, fontSize: 22 }}>{s.icon}</span>
+                </div>
+                <Statistic
+                  title={s.title}
+                  value={s.value}
+                  valueStyle={{ color: s.color, fontWeight: 600 }}
+                />
+              </div>
             </Card>
           </Col>
         ))}
       </Row>
 
-      {/* b) Durum filtresi (client-side). */}
-      <div style={{ marginBottom: 16 }}>
+      {/* b) Durum filtresi (client-side). Bolum araligi 24 - diger bloklarla tutarli. */}
+      <div style={{ marginBottom: 24 }}>
         <Segmented
           value={statusFilter}
           onChange={setStatusFilter}

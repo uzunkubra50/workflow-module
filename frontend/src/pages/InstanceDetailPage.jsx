@@ -169,7 +169,8 @@ function InstanceDetailPage() {
       >
         Geri
       </Button>
-      <Title level={3} style={{ marginTop: 0 }}>
+      {/* marginBottom: 24 — sayfa başlıklarında uygulama genelinde kullanılan bölüm aralığı. */}
+      <Title level={3} style={{ marginTop: 0, marginBottom: 24 }}>
         {instance.subject}
       </Title>
 
@@ -216,7 +217,10 @@ function InstanceDetailPage() {
       {/* 3) Aksiyonlar — yalnızca iş aktifse */}
       {instance.status === 'active' ? (
         <div style={{ marginBottom: 24 }}>
-          <Title level={4}>Aksiyonlar</Title>
+          {/* Alt başlıklarda marginBottom: 16 — sayfa başlığından (24) bir tık daha az. */}
+          <Title level={4} style={{ marginBottom: 16 }}>
+            Aksiyonlar
+          </Title>
           {instance.available_transitions.length === 0 ? (
             <Alert
               type="info"
@@ -224,7 +228,7 @@ function InstanceDetailPage() {
               showIcon
             />
           ) : (
-            <Space wrap>
+            <Space wrap size="middle">
               {instance.available_transitions.map((t) => (
                 <Button
                   key={t.id}
@@ -246,8 +250,10 @@ function InstanceDetailPage() {
         />
       )}
 
-      {/* 4) İşlem Geçmişi (2.3) */}
-      <Title level={4}>İşlem Geçmişi</Title>
+      {/* 4) İşlem Geçmişi (2.3) — aynı 16'lık alt başlık aralığı. */}
+      <Title level={4} style={{ marginBottom: 16 }}>
+        İşlem Geçmişi
+      </Title>
       {actions.length === 0 ? (
         <Empty description="Henüz işlem yok." />
       ) : (
