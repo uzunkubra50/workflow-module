@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import LoginPage from './pages/LoginPage.jsx'
 import InstanceListPage from './pages/InstanceListPage.jsx'
+import InstanceDetailPage from './pages/InstanceDetailPage.jsx'
 import ProtectedRoute from './components/ProtectedRoute.jsx'
 import AppLayout from './components/AppLayout.jsx'
 
@@ -23,14 +24,13 @@ function App() {
         }
       />
 
-      {/* 2.2 İş Akışı Detayı — şimdilik placeholder; asıl ekran sonraki adım.
-          Route buradan kırılmasın diye ekli. */}
+      {/* 2.2 İş Akışı Detayı + 2.3 İşlem Geçmişi — korumalı, ortak layout içinde. */}
       <Route
         path="/instances/:id"
         element={
           <ProtectedRoute>
             <AppLayout>
-              <h1>Detay yakında</h1>
+              <InstanceDetailPage />
             </AppLayout>
           </ProtectedRoute>
         }
