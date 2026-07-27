@@ -46,16 +46,3 @@ body {
 .ant-table-tbody > tr.ant-table-row > td {
   transition: background-color 0.2s ease;
 }
-
-/* Sayfa içeriği için basit bir fade-in tanımı. Şimdilik yalnızca TANIMLI —
-   route değişiminde otomatik uygulamak ayrı (ve daha karmaşık) bir sonraki adım. */
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}

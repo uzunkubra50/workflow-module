@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'corsheaders',
+    'drf_spectacular',
     'workflow',
 ]
 
@@ -153,6 +154,23 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+    # OpenAPI şemasını drf-spectacular üretir (Swagger UI bu şemayı okur).
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+
+# drf-spectacular (OpenAPI / Swagger)
+# Şema: /api/schema/ · Swagger UI: /api/docs/ · Redoc: /api/redoc/
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'İş Akışı Modülü API',
+    'DESCRIPTION': (
+        'Dijital arşiv sistemlerine entegre edilebilen bağımsız iş akışı modülü. '
+        'Korumalı uçları denemek için önce /api/token/ ile access token alın, '
+        'ardından yukarıdaki "Authorize" düğmesine "Bearer <access_token>" girin.'
+    ),
+    'VERSION': '1.0.0',
+    # Şema JSON'u ayrı uçtan sunulur; dokümantasyon sayfasında listelenmesin.
+    'SERVE_INCLUDE_SCHEMA': False,
 }
 
 

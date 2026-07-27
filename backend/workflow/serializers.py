@@ -1,3 +1,4 @@
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from .models import (
@@ -55,6 +56,15 @@ class WorkflowInstanceListSerializer(serializers.ModelSerializer):
         ]
 
 
+# definition_steps alanının çıktı şekli. Asıl veri aşağıda elle (dict olarak) üretiliyor;
+# bu sınıf OpenAPI şemasında doğru tipin görünmesi için @extend_schema_field'a veriliyor.
+class DefinitionStepSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    order = serializers.IntegerField()
+    is_current = serializers.BooleanField()
+
+
 # 2.2 İş Akışı Detayı ekranı — AĞIR: liste alanları + atanan kişi + o an yapılabilecek geçişler.
 class WorkflowInstanceDetailSerializer(WorkflowInstanceListSerializer):
     assigned_to = serializers.CharField(source='assigned_to.username', read_only=True)
@@ -71,10 +81,12 @@ class WorkflowInstanceDetailSerializer(WorkflowInstanceListSerializer):
             'definition_steps',
         ]
 
+    @extend_schema_field(WorkflowTransitionSerializer(many=True))
     def get_available_transitions(self, obj):
         transitions = get_available_transitions(obj)
         return WorkflowTransitionSerializer(transitions, many=True).data
 
+    @extend_schema_field(DefinitionStepSerializer(many=True))
     def get_definition_steps(self, obj):
         steps = WorkflowStep.objects.filter(definition=obj.definition).order_by('order')
         return [
@@ -121,14 +133,7 @@ class WorkflowInstanceCreateSerializer(serializers.ModelSerializer):
         )
 
 
-# --- Süreç dropdown'ı için hafif, salt okuma serializer'ları (frontend "Yeni İş" formu) ---
-
-
-# Bir sürecin adımlarını sade göstermek için (opsiyonel; ihtiyaç olursa kullanılır).
-class WorkflowStepSimpleSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = WorkflowStep
-        fields = ['id', 'name', 'order']
+# --- Süreç dropdown'ı için hafif, salt okuma serializer'ı (frontend "Yeni İş" formu) ---
 
 
 # GET /api/definitions/ — dropdown name gösterir, id gönderir.
