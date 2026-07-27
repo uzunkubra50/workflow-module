@@ -61,16 +61,31 @@ class WorkflowInstanceDetailSerializer(WorkflowInstanceListSerializer):
     # Bu instance'ın şu anki adımından yapılabilecek izinli geçişler (Karar 7, servisten).
     # Salt okuma; kullanıcı bunlardan birini seçip ayrı aksiyon endpoint'ine gönderecek.
     available_transitions = serializers.SerializerMethodField()
+    # Frontend'de süreç ilerleme çubuğu (Steps) için: sürecin TÜM adımları, sırayla.
+    definition_steps = serializers.SerializerMethodField()
 
     class Meta(WorkflowInstanceListSerializer.Meta):
         fields = WorkflowInstanceListSerializer.Meta.fields + [
             'assigned_to',
             'available_transitions',
+            'definition_steps',
         ]
 
     def get_available_transitions(self, obj):
         transitions = get_available_transitions(obj)
         return WorkflowTransitionSerializer(transitions, many=True).data
+
+    def get_definition_steps(self, obj):
+        steps = WorkflowStep.objects.filter(definition=obj.definition).order_by('order')
+        return [
+            {
+                'id': step.id,
+                'name': step.name,
+                'order': step.order,
+                'is_current': step.id == obj.current_step_id,
+            }
+            for step in steps
+        ]
 
 
 # 3.1 Sürece bağlama / yeni iş başlatma — YAZMA amaçlı (create body'sini kabul eder).

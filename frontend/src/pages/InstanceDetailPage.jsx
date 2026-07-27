@@ -3,18 +3,24 @@ import { useNavigate, useParams } from 'react-router-dom'
 import {
   Alert,
   Button,
+  Card,
   Descriptions,
   Empty,
   Input,
   Modal,
   Space,
   Spin,
+  Steps,
   Tag,
   Timeline,
   Typography,
   message,
 } from 'antd'
-import { ArrowLeftOutlined } from '@ant-design/icons'
+import {
+  ApartmentOutlined,
+  ArrowLeftOutlined,
+  EnvironmentOutlined,
+} from '@ant-design/icons'
 import api from '../api.js'
 
 const { Title } = Typography
@@ -27,12 +33,26 @@ const STATUS_COLORS = {
   cancelled: 'red',
 }
 
+// Kartlara hafif derinlik hissi veren ortak gölge (liste ekranıyla tutarlı).
+const CARD_SHADOW = '0 1px 4px rgba(0, 0, 0, 0.08)'
+
 // Geçiş tipine göre buton görünümü: approve mavi (primary), reject kırmızı (danger),
 // return ve diğerleri varsayılan.
 function transitionButtonProps(actionType) {
   if (actionType === 'approve') return { type: 'primary' }
   if (actionType === 'reject') return { danger: true }
   return {}
+}
+
+// Bir işlem geçmişi kaydının Timeline noktasının rengini belirler: to_step, from_step'ten
+// "geriye" (adım sırası küçülüyor) gidiyorsa kırmızı (iade), aksi halde yeşil.
+// stepOrderByName: adı sıraya (order) eşleyen Map (definition_steps'ten türetilir).
+// Adım isimleri Map'te yoksa (örn. "Başlangıç") antd'nin varsayılan mavi noktası kalır.
+function timelineDotColor(action, stepOrderByName) {
+  const fromOrder = stepOrderByName.get(action.from_step)
+  const toOrder = stepOrderByName.get(action.to_step)
+  if (fromOrder == null || toOrder == null) return undefined
+  return toOrder < fromOrder ? 'red' : 'green'
 }
 
 // 2.2 İş Akışı Detayı + 2.3 İşlem Geçmişi (tek sayfada).
@@ -127,6 +147,18 @@ function InstanceDetailPage() {
   // Güvenlik: veri gelmediyse boş render.
   if (!instance) return null
 
+  const definitionSteps = instance.definition_steps || []
+
+  // Steps'in "current" indeksi: normalde is_current olan adım. İş tamamlandıysa hepsi
+  // "tamamlandı" görünsün diye current'ı adım sayısına eşitliyoruz (son adım da yeşil tik olur).
+  const stepsCurrent =
+    instance.status === 'completed'
+      ? definitionSteps.length
+      : definitionSteps.findIndex((s) => s.is_current)
+
+  // Adı sıraya (order) eşleyen harita — geçmişteki geçişlerin yönünü (ileri/geri) belirlemek için.
+  const stepOrderByName = new Map(definitionSteps.map((s) => [s.name, s.order]))
+
   return (
     <>
       {/* 1) Geri butonu + başlık */}
@@ -143,14 +175,43 @@ function InstanceDetailPage() {
 
       {/* 2) İş bilgisi */}
       <Descriptions bordered column={1} style={{ marginBottom: 24 }}>
-        <Descriptions.Item label="Süreç">{instance.definition}</Descriptions.Item>
-        <Descriptions.Item label="Mevcut Adım">{instance.current_step}</Descriptions.Item>
+        <Descriptions.Item
+          label={
+            <Space size="small">
+              <ApartmentOutlined /> Süreç
+            </Space>
+          }
+        >
+          {instance.definition}
+        </Descriptions.Item>
+        <Descriptions.Item
+          label={
+            <Space size="small">
+              <EnvironmentOutlined /> Mevcut Adım
+            </Space>
+          }
+        >
+          {instance.current_step}
+        </Descriptions.Item>
         <Descriptions.Item label="Durum">
           <Tag color={STATUS_COLORS[instance.status]}>{instance.status_display}</Tag>
         </Descriptions.Item>
         <Descriptions.Item label="Belge">{instance.document_ref || '—'}</Descriptions.Item>
         <Descriptions.Item label="Atanan">{instance.assigned_to || '—'}</Descriptions.Item>
       </Descriptions>
+
+      {/* Süreç ilerleme çubuğu: sürecin tüm adımları + hangisinin şu an işlendiği. */}
+      {definitionSteps.length > 0 && (
+        <Card size="small" style={{ marginBottom: 24, boxShadow: CARD_SHADOW }}>
+          <Steps
+            size="default"
+            responsive
+            current={stepsCurrent}
+            status={instance.status === 'cancelled' ? 'error' : undefined}
+            items={definitionSteps.map((step) => ({ title: step.name }))}
+          />
+        </Card>
+      )}
 
       {/* 3) Aksiyonlar — yalnızca iş aktifse */}
       {instance.status === 'active' ? (
@@ -192,6 +253,7 @@ function InstanceDetailPage() {
       ) : (
         <Timeline
           items={actions.map((a) => ({
+            color: timelineDotColor(a, stepOrderByName),
             children: (
               <div>
                 {/* from_step null ise "Başlangıç" göster. */}
