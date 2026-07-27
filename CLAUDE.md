@@ -15,6 +15,15 @@ istenirse Bölüm 6'daki bağlantı noktaları üzerinden başka bir sisteme ent
 - Docker + docker-compose (db + backend servisleri)
 - Faz 1'de arayüz yok — Django admin kullanılır, ayrı bir frontend yazılmaz
 
+## Klasör Yapısı
+```
+backend/            Django tarafı — core/, workflow/, manage.py, requirements.txt,
+                    Dockerfile, .env (venv de burada)
+frontend/           React + Vite arayüzü (Faz 1 sonrası eklendi)
+docker-compose.yml  kökte durur (db + backend servislerini yönetir)
+```
+Django komutları `backend/` içinden çalıştırılır (örn. `cd backend && python manage.py ...`).
+
 ## Beş Temel Kavram (Bölüm 3)
 | Kavram | Anlamı |
 |---|---|

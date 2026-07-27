@@ -1,11 +1,11 @@
 services:
   db:
     image: postgres:16-alpine
-    # Değerler proje kökündeki .env'den ${...} ile interpolate edilir.
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    # Değerler backend/.env'den okunur. NOT: ${...} interpolasyonu KULLANILMIYOR —
+    # Compose onu yalnızca compose dosyasının yanındaki .env'de arar; .env artık
+    # backend/ altında olduğu için env_file ile doğrudan container'a veriyoruz.
+    env_file:
+      - ./backend/.env
     # Named volume: container silinse de veri kalır.
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -13,23 +13,25 @@ services:
     ports:
       - "5433:5432"
     # Postgres gerçekten bağlantı kabul edene kadar "healthy" sayılmaz.
+    # $$ -> Compose'a değil, container'ın kabuğuna geçer; değişkenler orada genişler.
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 5s
       retries: 5
 
   backend:
-    build: .
+    # Build context artık backend/ klasörü (Dockerfile ve requirements.txt orada).
+    build: ./backend
     command: python manage.py runserver 0.0.0.0:8000
     # Kod canlı paylaşımı: migration dosyaları hem container'da hem diskte görünür.
     volumes:
-      - .:/app
+      - ./backend:/app
     # Host 8001 -> container 8000.
     ports:
       - "8001:8000"
     env_file:
-      - .env
+      - ./backend/.env
     # .env'deki POSTGRES_HOST=localhost'u ezer: container içinden Postgres'e
     # servis adıyla (db) erişilir.
     environment:

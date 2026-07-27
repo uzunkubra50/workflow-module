@@ -12,11 +12,12 @@ venv/
 !.env.example
 
 # Django
+# Not: desenler kök-sabitli DEĞİL — backend/ altında da eşleşsinler diye.
 db.sqlite3
 db.sqlite3-journal
 *.log
-/staticfiles/
-/media/
+staticfiles/
+media/
 
 # Editör / IDE
 .idea/
