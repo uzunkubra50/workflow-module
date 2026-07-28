@@ -108,7 +108,7 @@ bağımsızlık kararıyla çelişir.
 
 | Model | Amaç | Alanlar |
 |---|---|---|
-| `WorkflowInstance` | Gerçek yürüyen süreç | `definition` (FK), `subject`, `current_step` (FK, **PROTECT**), `status` (enum: aktif/tamamlandı/iptal), `assigned_to` (FK → User), `document_ref` (opsiyonel, FK DEĞİL) |
+| `WorkflowInstance` | Gerçek yürüyen süreç | `definition` (FK), `subject`, `current_step` (FK, **PROTECT**), `status` (enum: aktif/tamamlandı/reddedildi), `assigned_to` (FK → User), `document_ref` (opsiyonel, FK DEĞİL) |
 | `WorkflowAction` | İşlem geçmişi / audit trail | `instance` (FK), `from_step`, `to_step`, `performed_by` (FK → User), `note`, `created_at` |
 
 > Not: `WorkflowDefinition.unit` alanının neye FK olacağı doküman içinde netleşmemiş —

@@ -21,7 +21,16 @@ class WorkflowActionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = WorkflowAction
-        fields = ['id', 'from_step', 'to_step', 'performed_by', 'note', 'created_at']
+        fields = [
+            'id',
+            'from_step',
+            'to_step',
+            'action_type',
+            'action_name',
+            'performed_by',
+            'note',
+            'created_at',
+        ]
         # Tüm alanlar salt okuma; bu serializer yalnızca geçmişi göstermek için.
         read_only_fields = ['id', 'note', 'created_at']
 

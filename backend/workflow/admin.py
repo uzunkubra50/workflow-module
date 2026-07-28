@@ -54,8 +54,15 @@ class WorkflowInstanceAdmin(admin.ModelAdmin):
 
 
 class WorkflowActionAdmin(admin.ModelAdmin):
-    list_display = ('instance', 'from_step', 'to_step', 'performed_by', 'created_at')
-    list_filter = ('created_at',)
+    list_display = (
+        'instance',
+        'from_step',
+        'to_step',
+        'action_name',
+        'performed_by',
+        'created_at',
+    )
+    list_filter = ('action_type', 'created_at')
 
 
 # --- Kayıtlar ---

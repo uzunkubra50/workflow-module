@@ -20,6 +20,7 @@ import {
   ApartmentOutlined,
   ArrowLeftOutlined,
   EnvironmentOutlined,
+  TeamOutlined,
 } from '@ant-design/icons'
 import api from '../api.js'
 
@@ -30,7 +31,14 @@ const { TextArea } = Input
 const STATUS_COLORS = {
   active: 'blue',
   completed: 'green',
-  cancelled: 'red',
+  rejected: 'volcano',
+}
+
+// action_type koduna göre Timeline noktası/etiket rengi.
+const ACTION_TYPE_COLORS = {
+  approve: 'green',
+  reject: 'red',
+  return: 'orange',
 }
 
 // Kartlara hafif derinlik hissi veren ortak gölge (liste ekranıyla tutarlı).
@@ -44,11 +52,17 @@ function transitionButtonProps(actionType) {
   return {}
 }
 
-// Bir işlem geçmişi kaydının Timeline noktasının rengini belirler: to_step, from_step'ten
+// Bir işlem geçmişi kaydının Timeline noktasının rengini belirler. Öncelik action_type'a
+// göredir (Onayla yeşil / Reddet kırmızı / İade turuncu) — aynı from_step→to_step çiftine
+// birden fazla aksiyon bağlı olabildiği için (örn. Müdür Onayı → Sonuçlandı: Onayla/Reddet)
+// yön karşılaştırması tek başına yeterli değildir. action_type boşsa (bu alan eklenmeden
+// ÖNCE oluşmuş eski kayıtlar) eski sezgisel yönteme düşülür: to_step, from_step'ten
 // "geriye" (adım sırası küçülüyor) gidiyorsa kırmızı (iade), aksi halde yeşil.
 // stepOrderByName: adı sıraya (order) eşleyen Map (definition_steps'ten türetilir).
-// Adım isimleri Map'te yoksa (örn. "Başlangıç") antd'nin varsayılan mavi noktası kalır.
 function timelineDotColor(action, stepOrderByName) {
+  if (action.action_type && ACTION_TYPE_COLORS[action.action_type]) {
+    return ACTION_TYPE_COLORS[action.action_type]
+  }
   const fromOrder = stepOrderByName.get(action.from_step)
   const toOrder = stepOrderByName.get(action.to_step)
   if (fromOrder == null || toOrder == null) return undefined
@@ -194,6 +208,15 @@ function InstanceDetailPage() {
         >
           {instance.current_step}
         </Descriptions.Item>
+        <Descriptions.Item
+          label={
+            <Space size="small">
+              <TeamOutlined /> Sorumlu Grup
+            </Space>
+          }
+        >
+          {instance.responsible_group || '—'}
+        </Descriptions.Item>
         <Descriptions.Item label="Durum">
           <Tag color={STATUS_COLORS[instance.status]}>{instance.status_display}</Tag>
         </Descriptions.Item>
@@ -208,14 +231,36 @@ function InstanceDetailPage() {
             size="default"
             responsive
             current={stepsCurrent}
-            status={instance.status === 'cancelled' ? 'error' : undefined}
+            status={instance.status === 'rejected' ? 'error' : undefined}
             items={definitionSteps.map((step) => ({ title: step.name }))}
           />
         </Card>
       )}
 
-      {/* 3) Aksiyonlar — yalnızca iş aktifse */}
-      {instance.status === 'active' ? (
+      {/* 3) Aksiyonlar — üç durum: (a) iş bitmiş, (b) aktif ama yetkisiz, (c) aktif ve yetkili. */}
+      {instance.status !== 'active' ? (
+        // (a) İş tamamlanmış/reddedilmiş — aksiyon zaten mümkün değil.
+        <Alert
+          type="info"
+          message="Bu iş tamamlanmış/reddedilmiş, işlem yapılamaz."
+          showIcon
+          style={{ marginBottom: 24 }}
+        />
+      ) : !instance.can_perform_action ? (
+        // (b) İş aktif ama kullanıcı bu adımın sorumlu grubunda değil (Faz 2 yetki kısıtı).
+        // Aksiyon butonları GÖSTERİLMEZ.
+        <Alert
+          type="warning"
+          message={
+            instance.responsible_group
+              ? `Bu adımda işlem yapma yetkiniz yok. Sorumlu grup: ${instance.responsible_group}`
+              : 'Bu adımda işlem yapma yetkiniz yok.'
+          }
+          showIcon
+          style={{ marginBottom: 24 }}
+        />
+      ) : (
+        // (c) İş aktif ve kullanıcı yetkili — mevcut aksiyon butonları.
         <div style={{ marginBottom: 24 }}>
           {/* Alt başlıklarda marginBottom: 16 — sayfa başlığından (24) bir tık daha az. */}
           <Title level={4} style={{ marginBottom: 16 }}>
@@ -241,13 +286,6 @@ function InstanceDetailPage() {
             </Space>
           )}
         </div>
-      ) : (
-        <Alert
-          type="info"
-          message="Bu iş tamamlanmış/iptal edilmiş, işlem yapılamaz."
-          showIcon
-          style={{ marginBottom: 24 }}
-        />
       )}
 
       {/* 4) İşlem Geçmişi (2.3) — aynı 16'lık alt başlık aralığı. */}
@@ -267,6 +305,15 @@ function InstanceDetailPage() {
                   <strong>
                     {a.from_step || 'Başlangıç'} → {a.to_step || '—'}
                   </strong>
+                  {/* action_name yalnızca bu alan eklendikten SONRA oluşan kayıtlarda dolu. */}
+                  {a.action_name && (
+                    <Tag
+                      color={ACTION_TYPE_COLORS[a.action_type]}
+                      style={{ marginLeft: 8 }}
+                    >
+                      {a.action_name}
+                    </Tag>
+                  )}
                 </div>
                 <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 13 }}>
                   {a.performed_by || 'Bilinmiyor'} ·{' '}

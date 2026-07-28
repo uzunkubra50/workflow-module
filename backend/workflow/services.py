@@ -89,8 +89,9 @@ def perform_transition(instance, transition, user, note=""):
         - transition, instance'ın mevcut adımından izinli geçişler içinde değilse
           hiçbir değişiklik yapmadan ValidationError fırlatır.
         - transaction.atomic() içinde (ya hep ya hiç): current_step'i transition.to_step
-          yapar, hedef adım bitiş adımıysa status'u COMPLETED'a çeker, instance'ı kaydeder
-          ve bir WorkflowAction (audit) kaydı oluşturur.
+          yapar, hedef adım bitiş adımıysa status'u COMPLETED'a (reddeden bir geçişse
+          REJECTED'a) çeker, instance'ı kaydeder ve bir WorkflowAction (audit) kaydı
+          oluşturur (o anki action_type/action_name da kaydın üzerine kopyalanır).
 
     Fırlatır:
         django.core.exceptions.PermissionDenied: kullanıcı bu adımda yetkili değilse.
@@ -121,13 +122,18 @@ def perform_transition(instance, transition, user, note=""):
 
         instance.current_step = transition.to_step
         if transition.to_step.is_end:
-            instance.status = WorkflowInstance.Status.COMPLETED
+            if transition.action_type == WorkflowTransition.ActionType.REJECT:
+                instance.status = WorkflowInstance.Status.REJECTED
+            else:
+                instance.status = WorkflowInstance.Status.COMPLETED
         instance.save()
 
         action = WorkflowAction.objects.create(
             instance=instance,
             from_step=from_step,
             to_step=transition.to_step,
+            action_type=transition.action_type,
+            action_name=transition.action_name,
             performed_by=user,
             note=note,
         )

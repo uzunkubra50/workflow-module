@@ -23,26 +23,27 @@ import {
   ApartmentOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
-  CloseCircleOutlined,
   PlusOutlined,
   ProfileOutlined,
+  StopOutlined,
 } from '@ant-design/icons'
 import api from '../api.js'
 
 const { Title } = Typography
 
-// status koduna göre Tag rengi (doküman 2.1: Aktif mavi, Tamamlandı yeşil, İptal kırmızı).
+// status koduna göre Tag rengi (doküman 2.1: Aktif mavi, Tamamlandı yeşil;
+// Reddedildi, Faz 2 Müdür Onayı düzeltmesiyle eklendi — turuncu-kırmızı).
 const STATUS_COLORS = {
   active: 'blue',
   completed: 'green',
-  cancelled: 'red',
+  rejected: 'volcano',
 }
 
 // status koduna göre Tag ikonu (renklerle aynı anlam).
 const STATUS_ICONS = {
   active: <ClockCircleOutlined />,
   completed: <CheckCircleOutlined />,
-  cancelled: <CloseCircleOutlined />,
+  rejected: <StopOutlined />,
 }
 
 // Kartlara/tabloya hafif derinlik hissi veren ortak gölge.
@@ -135,7 +136,7 @@ function InstanceListPage() {
       total: instances.length,
       active: instances.filter((i) => i.status === 'active').length,
       completed: instances.filter((i) => i.status === 'completed').length,
-      cancelled: instances.filter((i) => i.status === 'cancelled').length,
+      rejected: instances.filter((i) => i.status === 'rejected').length,
     }
   }, [instances])
 
@@ -240,11 +241,11 @@ function InstanceListPage() {
       bgColor: '#f6ffed',
     },
     {
-      title: 'İptal',
-      value: stats.cancelled,
-      icon: <CloseCircleOutlined />,
-      color: '#cf1322',
-      bgColor: '#fff1f0',
+      title: 'Reddedilen',
+      value: stats.rejected,
+      icon: <StopOutlined />,
+      color: '#d4380d',
+      bgColor: '#fff2e8',
     },
   ]
 
@@ -310,6 +311,7 @@ function InstanceListPage() {
             { label: 'Tümü', value: 'all' },
             { label: 'Aktif', value: 'active' },
             { label: 'Tamamlanan', value: 'completed' },
+            { label: 'Reddedilen', value: 'rejected' },
           ]}
         />
       </div>

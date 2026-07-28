@@ -99,7 +99,7 @@ class WorkflowInstance(models.Model):
     class Status(models.TextChoices):
         ACTIVE = 'active', 'Aktif'
         COMPLETED = 'completed', 'Tamamlandı'
-        CANCELLED = 'cancelled', 'İptal'
+        REJECTED = 'rejected', 'Reddedildi'
 
     definition = models.ForeignKey(
         WorkflowDefinition,
@@ -151,6 +151,15 @@ class WorkflowAction(models.Model):
         on_delete=models.SET_NULL,
         related_name='+',
     )
+    # Hangi aksiyonun seçildiğinin anlık görüntüsü: FK değil, o anki transition'dan kopyalanır.
+    # Böylece transition daha sonra silinse/değişse bile geçmiş kaydı bozulmaz. Aynı (from_step,
+    # to_step) çiftine birden fazla aksiyon (örn. Onayla/Reddet) bağlı olabildiği için gereklidir.
+    action_type = models.CharField(
+        max_length=20,
+        choices=WorkflowTransition.ActionType.choices,
+        blank=True,
+    )
+    action_name = models.CharField(max_length=100, blank=True)
     performed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,
