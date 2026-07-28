@@ -1,4 +1,4 @@
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.generics import get_object_or_404
@@ -69,6 +69,12 @@ class WorkflowInstanceViewSet(
                 transition,
                 request.user,
                 note=request.data.get('note', ''),
+            )
+        except PermissionDenied as exc:
+            # Kullanıcı bu adımda yetkili değil (Faz 2, responsible_group kısıtı) -> 403.
+            return Response(
+                {'error': str(exc)},
+                status=status.HTTP_403_FORBIDDEN,
             )
         except ValidationError as exc:
             # İzinsiz/geçersiz geçiş: servis ValidationError fırlatır -> 400.

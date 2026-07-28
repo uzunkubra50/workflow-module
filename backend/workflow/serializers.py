@@ -8,7 +8,7 @@ from .models import (
     WorkflowStep,
     WorkflowTransition,
 )
-from .services import get_available_transitions
+from .services import can_user_perform, get_available_transitions
 
 
 # 2.3 İşlem Geçmişi ekranı — audit trail satırları. Salt okuma (geçmiş değiştirilmez).
@@ -73,12 +73,18 @@ class WorkflowInstanceDetailSerializer(WorkflowInstanceListSerializer):
     available_transitions = serializers.SerializerMethodField()
     # Frontend'de süreç ilerleme çubuğu (Steps) için: sürecin TÜM adımları, sırayla.
     definition_steps = serializers.SerializerMethodField()
+    # Faz 2, rol/yetki kısıtı: bu isteği yapan kullanıcı şu an aksiyon alabilir mi?
+    can_perform_action = serializers.SerializerMethodField()
+    # Mevcut adımın sorumlu grubu (varsa adı, yoksa None) — bilgi amaçlı gösterim.
+    responsible_group = serializers.SerializerMethodField()
 
     class Meta(WorkflowInstanceListSerializer.Meta):
         fields = WorkflowInstanceListSerializer.Meta.fields + [
             'assigned_to',
             'available_transitions',
             'definition_steps',
+            'can_perform_action',
+            'responsible_group',
         ]
 
     @extend_schema_field(WorkflowTransitionSerializer(many=True))
@@ -98,6 +104,19 @@ class WorkflowInstanceDetailSerializer(WorkflowInstanceListSerializer):
             }
             for step in steps
         ]
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_can_perform_action(self, obj):
+        # request context yoksa (örn. serializer başka bir yerden çağrılırsa) savunmacı: False.
+        request = self.context.get('request')
+        if request is None:
+            return False
+        return can_user_perform(request.user, obj)
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_responsible_group(self, obj):
+        group = obj.current_step.responsible_group
+        return group.name if group else None
 
 
 # 3.1 Sürece bağlama / yeni iş başlatma — YAZMA amaçlı (create body'sini kabul eder).
