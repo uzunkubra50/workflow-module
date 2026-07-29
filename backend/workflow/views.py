@@ -1,4 +1,5 @@
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db.models import Q
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.generics import get_object_or_404
@@ -31,7 +32,18 @@ class WorkflowInstanceViewSet(
     queryset = WorkflowInstance.objects.all()
 
     def get_queryset(self):
-        """Ekran 2.1: kullanıcı, grubunun sorumlu olduğu adımdaki işleri görür.
+        """Ekran 2.1 "İş Akışlarım": kullanıcının ilgili olduğu işler.
+
+        İki ölçüt VEYA ile birleşir:
+          1. Şu an bende olan: mevcut adımın sorumlu grubu, kullanıcının gruplarından
+             biri. "Yapılacak işlerim" kısmı.
+          2. Benim işlem yaptığım: geçmişte bu işte bir aksiyon almışım.
+
+        İkinci ölçüt olmadan ekran tutarsız kalıyordu: iş bitince "Sonuçlandı"
+        adımına geçiyor, o adımın sorumlu grubu olmadığı için hiç kimsenin
+        listesinde kalmıyordu. Sonuç olarak "Tamamlanan"/"Reddedilen" filtreleri ve
+        istatistik kartları normal kullanıcı için kalıcı olarak 0 gösteriyordu —
+        kararı veren kişi bile kendi onayladığı işi göremiyordu.
 
         Filtre YALNIZCA listeye uygulanır. Detay ucu bilinçli olarak kısıtlanmaz:
         2.2 ekranı, kullanıcı o adımda yetkili olmasa bile işi görüp "bu adımda
@@ -42,10 +54,9 @@ class WorkflowInstanceViewSet(
 
         Yönetici (superuser) istisnadır: denetim ve acil müdahale için hepsini görür.
 
-        BİLİNEN SINIRLAMA: sorumlu grubu olmayan bir adımda (örn. bitiş adımı
-        "Sonuçlandı") duran iş, hiçbir grubun listesinde görünmez — yalnızca
-        yönetici görür. "Geçmişte işlem yaptığım işler de listemde kalsın" kuralı
-        henüz eklenmedi, kapsam onayı bekliyor.
+        AÇIK KALAN NOKTA: bir işi açıp hiç işlem yapmayan kullanıcı onu göremez —
+        ne created_by alanı var, ne assigned_to dolduruluyor. Bu bir kapsam sorusu,
+        cevap gelince ele alınacak.
         """
         queryset = super().get_queryset()
 
@@ -57,9 +68,11 @@ class WorkflowInstanceViewSet(
         if user.is_superuser:
             return queryset
 
+        # distinct(): actions üzerinden JOIN, çok aksiyonlu işi mükerrer döndürür.
         return queryset.filter(
-            current_step__responsible_group__in=user.groups.all()
-        )
+            Q(current_step__responsible_group__in=user.groups.all())
+            | Q(actions__performed_by=user)
+        ).distinct()
 
     def get_serializer_class(self):
         # Liste hafif (ad gösterimi), create yazma amaçlı (FK'ler yazılabilir),

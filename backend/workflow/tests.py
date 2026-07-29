@@ -493,19 +493,42 @@ class InstanceListFilterTests(WorkflowTestBase):
     def test_hicbir_gruba_uye_olmayan_kullanici_bos_liste_gorur(self):
         self.assertEqual(self._liste_konulari(self.user_bagimsiz), [])
 
-    def test_sorumlu_grubu_olmayan_adimdaki_is_gruplara_gorunmez(self):
-        """Bilinen sınırlama — bilinçli olarak böyle, kapsam onayı bekliyor.
+    def test_islem_yaptigim_is_bitse_de_listemde_kalir(self):
+        """İkinci ölçüt: geçmişte aksiyon aldığım iş listemden düşmez.
 
-        Bitiş adımının sorumlu grubu olmadığı için tamamlanan iş hiçbir grubun
-        listesinde kalmaz; yalnızca yönetici görür. "Geçmişte işlem yaptığım işler
-        listemde kalsın" kuralı eklendiğinde bu test güncellenecek.
+        Bu olmadan ekran tutarsız kalıyordu — iş bitince sorumlu grubu olmayan
+        "Sonuçlandı" adımına geçtiği için hiç kimsenin listesinde görünmüyordu.
         """
-        self.instance.current_step = self.step_sonuc  # responsible_group=None
-        self.instance.status = WorkflowInstance.Status.COMPLETED
-        self.instance.save()
+        perform_transition(self.instance, self.t_gonder, self.user_evrak)
+        # İş, evrak_user'ın grubunun sorumlu OLMADIĞI adıma taşındı...
+        self.instance.refresh_from_db()
+        self.assertEqual(self.instance.current_step, self.step_inceleme)
+        # ...ama işlem yaptığı için hâlâ listesinde.
+        self.assertIn('Test başvurusu', self._liste_konulari(self.user_evrak))
 
-        self.assertNotIn('Test başvurusu', self._liste_konulari(self.user_evrak))
-        self.assertIn('Test başvurusu', self._liste_konulari(self.admin))
+    def test_bitis_adimina_ulasan_is_karar_verende_kalir(self):
+        """Reddeden kişi, kendi verdiği kararı listesinde görebilmeli."""
+        self.instance.current_step = self.step_inceleme
+        self.instance.save()
+        perform_transition(self.instance, self.t_reddet, self.user_mudur)
+
+        self.instance.refresh_from_db()
+        self.assertEqual(self.instance.status, WorkflowInstance.Status.REJECTED)
+        # Sonuçlandı adımının sorumlu grubu yok; yine de kararı veren görür.
+        self.assertIn('Test başvurusu', self._liste_konulari(self.user_mudur))
+
+    def test_hic_dokunmadigim_yabanci_is_gorunmez(self):
+        """Filtre gevşemedi: ilgisiz iş hâlâ görünmüyor."""
+        self.assertNotIn('Müdürde bekleyen iş', self._liste_konulari(self.user_evrak))
+
+    def test_cok_aksiyonlu_is_listede_bir_kez_gorunur(self):
+        """actions üzerinden JOIN mükerrer satır üretmemeli (distinct)."""
+        perform_transition(self.instance, self.t_gonder, self.user_evrak)
+        perform_transition(self.instance, self.t_iade, self.user_mudur)
+        perform_transition(self.instance, self.t_gonder, self.user_evrak)
+
+        konular = self._liste_konulari(self.user_evrak)
+        self.assertEqual(konular.count('Test başvurusu'), 1)
 
     def test_detay_ucu_filtreden_etkilenmez(self):
         """Filtre yalnızca listede; detay, yetkisiz kullanıcıya da açık.
