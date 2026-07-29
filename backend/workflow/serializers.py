@@ -62,6 +62,7 @@ class WorkflowInstanceListSerializer(serializers.ModelSerializer):
             'document_ref',
             'current_step',
             'definition',
+            'created_at',
         ]
 
 

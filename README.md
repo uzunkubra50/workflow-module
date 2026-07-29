@@ -112,7 +112,7 @@ docker compose up -d --build
 docker compose exec backend python manage.py test workflow
 ```
 
-48 test; ayrı bir test veritabanında çalışır, geliştirme verisine dokunmaz. Kapsam
+57 test; ayrı bir test veritabanında çalışır, geliştirme verisine dokunmaz. Kapsam
 servis katmanında yoğunlaşır (`get_available_transitions`, `can_user_perform`,
 `perform_transition`) — iş kuralları orada olduğu için (Karar 7). Ayrıca aynı
 kuralların HTTP katmanında doğru koda çevrildiği doğrulanır: yetkisiz aksiyon `403`,
@@ -184,6 +184,16 @@ biçiminde girin.
 Aksiyon butonları sabit değildir: mevcut adımdan tanımlı `WorkflowTransition` kayıtlarına
 göre üretilir. Kullanıcı adımın `responsible_group`'una üye değilse butonlar yerine yetki
 uyarısı gösterilir.
+
+**Liste filtresi.** `GET /api/instances/` yalnızca kullanıcının grubunun sorumlu olduğu
+adımdaki işleri döndürür; yönetici (superuser) hepsini görür. Filtre bilinçli olarak
+yalnızca listeye uygulanır — detay ucu kısıtlanmaz, çünkü 2.2 ekranı kullanıcı yetkili
+olmasa bile işi görüp yetki uyarısını gösterecek şekilde tasarlandı. Aksiyon yetkisi her
+durumda serviste doğrulanır (`can_user_perform`).
+
+> ⚠️ Bilinen sınırlama: sorumlu grubu olmayan bir adımda (örn. bitiş adımı) duran iş
+> hiçbir grubun listesinde görünmez, yalnızca yönetici görür. "Geçmişte işlem yaptığım
+> işler de listemde kalsın" kuralı kapsam onayı bekliyor.
 
 ## Kapsam
 

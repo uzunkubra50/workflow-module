@@ -333,6 +333,13 @@ class WorkflowInstanceAPITests(WorkflowTestBase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.data), 1)
 
+    def test_liste_olusturma_tarihini_doner(self):
+        """Ekran 2.1 listede tarih gösterir; created_at otomatik dolar."""
+        self.client.force_authenticate(user=self.user_evrak)
+        response = self.client.get('/api/instances/')
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNotNone(response.data[0]['created_at'])
+
     def test_detay_yetki_alanlarini_doner(self):
         """can_perform_action ve responsible_group, isteği yapan kullanıcıya göre."""
         self.client.force_authenticate(user=self.user_evrak)
@@ -446,6 +453,78 @@ class WorkflowInstanceAPITests(WorkflowTestBase):
         codes = [d['code'] for d in response.data]
         self.assertIn('TEST', codes)
         self.assertNotIn('PASSIVE', codes)
+
+
+class InstanceListFilterTests(WorkflowTestBase):
+    """Ekran 2.1: liste, kullanıcının grubunun sorumlu olduğu işlerle sınırlıdır."""
+
+    def setUp(self):
+        super().setUp()
+        self.client = APIClient()
+        # İkinci iş, Müdür grubunun sorumlu olduğu adımda duruyor.
+        self.mudur_isi = WorkflowInstance.objects.create(
+            definition=self.definition,
+            subject='Müdürde bekleyen iş',
+            current_step=self.step_inceleme,
+            status=WorkflowInstance.Status.ACTIVE,
+        )
+
+    def _liste_konulari(self, user):
+        self.client.force_authenticate(user=user)
+        response = self.client.get('/api/instances/')
+        self.assertEqual(response.status_code, 200)
+        return [i['subject'] for i in response.data]
+
+    def test_kullanici_yalnizca_kendi_grubunun_islerini_gorur(self):
+        konular = self._liste_konulari(self.user_evrak)
+        self.assertEqual(konular, ['Test başvurusu'])
+
+    def test_baska_gruba_ait_is_listede_gorunmez(self):
+        self.assertNotIn('Müdürde bekleyen iş', self._liste_konulari(self.user_evrak))
+        self.assertNotIn('Test başvurusu', self._liste_konulari(self.user_mudur))
+
+    def test_her_grup_kendi_isini_gorur(self):
+        self.assertEqual(self._liste_konulari(self.user_mudur), ['Müdürde bekleyen iş'])
+
+    def test_superuser_tum_isleri_gorur(self):
+        konular = self._liste_konulari(self.admin)
+        self.assertCountEqual(konular, ['Test başvurusu', 'Müdürde bekleyen iş'])
+
+    def test_hicbir_gruba_uye_olmayan_kullanici_bos_liste_gorur(self):
+        self.assertEqual(self._liste_konulari(self.user_bagimsiz), [])
+
+    def test_sorumlu_grubu_olmayan_adimdaki_is_gruplara_gorunmez(self):
+        """Bilinen sınırlama — bilinçli olarak böyle, kapsam onayı bekliyor.
+
+        Bitiş adımının sorumlu grubu olmadığı için tamamlanan iş hiçbir grubun
+        listesinde kalmaz; yalnızca yönetici görür. "Geçmişte işlem yaptığım işler
+        listemde kalsın" kuralı eklendiğinde bu test güncellenecek.
+        """
+        self.instance.current_step = self.step_sonuc  # responsible_group=None
+        self.instance.status = WorkflowInstance.Status.COMPLETED
+        self.instance.save()
+
+        self.assertNotIn('Test başvurusu', self._liste_konulari(self.user_evrak))
+        self.assertIn('Test başvurusu', self._liste_konulari(self.admin))
+
+    def test_detay_ucu_filtreden_etkilenmez(self):
+        """Filtre yalnızca listede; detay, yetkisiz kullanıcıya da açık.
+
+        2.2 ekranı "bu adımda işlem yapma yetkiniz yok" uyarısını gösterebilmek için
+        işi yükleyebilmeli. Aksiyon yetkisi ayrıca serviste doğrulanıyor.
+        """
+        self.client.force_authenticate(user=self.user_evrak)
+        response = self.client.get(f'/api/instances/{self.mudur_isi.pk}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data['can_perform_action'])
+        self.assertEqual(response.data['responsible_group'], 'Müdür')
+
+    def test_islem_gecmisi_ucu_filtreden_etkilenmez(self):
+        perform_transition(self.mudur_isi, self.t_iade, self.user_mudur)
+        self.client.force_authenticate(user=self.user_evrak)
+        response = self.client.get(f'/api/instances/{self.mudur_isi.pk}/actions/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 1)
 
 
 class LoginThrottleTests(TestCase):

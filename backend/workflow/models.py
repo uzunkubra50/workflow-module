@@ -124,6 +124,9 @@ class WorkflowInstance(models.Model):
     )
     # Karar 1 / Ek not: FK DEĞİL — belge başka bir veritabanında olabilir, serbest kimlik.
     document_ref = models.CharField(max_length=255, blank=True)
+    # Ekran 2.1 listede tarih gösterir. Türetilemez: yeni açılan işin henüz hiç
+    # WorkflowAction kaydı olmadığı için geçmişten tarih çıkarmak mümkün değil.
+    created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"{self.subject} [{self.get_status_display()}]"

@@ -28,7 +28,38 @@ class WorkflowInstanceViewSet(
     geçişlerle (perform-action) ilerler; keyfi güncelleme/silme yoktur.
     """
 
-    queryset = WorkflowInstance.objects.all()  # Şimdilik hepsi; kullanıcıya göre filtre Faz 2.
+    queryset = WorkflowInstance.objects.all()
+
+    def get_queryset(self):
+        """Ekran 2.1: kullanıcı, grubunun sorumlu olduğu adımdaki işleri görür.
+
+        Filtre YALNIZCA listeye uygulanır. Detay ucu bilinçli olarak kısıtlanmaz:
+        2.2 ekranı, kullanıcı o adımda yetkili olmasa bile işi görüp "bu adımda
+        işlem yapma yetkiniz yok, sorumlu grup: X" uyarısını göstermek üzere
+        tasarlandı (bkz. serializer'daki can_perform_action). Detayı da filtrelersek
+        o uyarı erişilemez hale gelir, kullanıcı 404 alır. Aksiyon alma yetkisi
+        ayrıca ve her durumda serviste doğrulanıyor (can_user_perform).
+
+        Yönetici (superuser) istisnadır: denetim ve acil müdahale için hepsini görür.
+
+        BİLİNEN SINIRLAMA: sorumlu grubu olmayan bir adımda (örn. bitiş adımı
+        "Sonuçlandı") duran iş, hiçbir grubun listesinde görünmez — yalnızca
+        yönetici görür. "Geçmişte işlem yaptığım işler de listemde kalsın" kuralı
+        henüz eklenmedi, kapsam onayı bekliyor.
+        """
+        queryset = super().get_queryset()
+
+        # list dışındaki eylemler (retrieve, perform-action, actions) filtrelenmez.
+        if self.action != 'list':
+            return queryset
+
+        user = self.request.user
+        if user.is_superuser:
+            return queryset
+
+        return queryset.filter(
+            current_step__responsible_group__in=user.groups.all()
+        )
 
     def get_serializer_class(self):
         # Liste hafif (ad gösterimi), create yazma amaçlı (FK'ler yazılabilir),

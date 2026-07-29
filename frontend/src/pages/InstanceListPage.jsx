@@ -89,6 +89,22 @@ const columns = [
       </Tag>
     ),
   },
+  {
+    title: 'Oluşturulma',
+    dataIndex: 'created_at',
+    key: 'created_at',
+    // Sunucu ISO 8601 (UTC) gönderir; tarayıcının yerel saatine çevrilip gösterilir.
+    render: (value) =>
+      value
+        ? new Date(value).toLocaleString('tr-TR', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          })
+        : '—',
+  },
 ]
 
 // 2.1 İş Akışlarım (liste + istatistik + filtre) + 3.1 Yeni İş Başlatma (modal).
