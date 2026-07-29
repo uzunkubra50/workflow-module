@@ -156,6 +156,13 @@ REST_FRAMEWORK = {
     ],
     # OpenAPI şemasını drf-spectacular üretir (Swagger UI bu şemayı okur).
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    # Hız sınırları. DEFAULT_THROTTLE_CLASSES bilinçli olarak TANIMLANMADI:
+    # sınır global değil, yalnızca bunu açıkça isteyen uçlara uygulanır.
+    # Şu an tek uygulayan giriş ucu (bkz. core/views.py).
+    'DEFAULT_THROTTLE_RATES': {
+        'login': '5/min',       # aynı kullanıcı adına dakikada 5 deneme
+        'login_ip': '20/min',   # aynı IP'den dakikada 20 deneme (ortak IP payı)
+    },
 }
 
 

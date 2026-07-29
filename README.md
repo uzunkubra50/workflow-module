@@ -112,11 +112,33 @@ docker compose up -d --build
 docker compose exec backend python manage.py test workflow
 ```
 
-43 test; ayrı bir test veritabanında çalışır, geliştirme verisine dokunmaz. Kapsam
+48 test; ayrı bir test veritabanında çalışır, geliştirme verisine dokunmaz. Kapsam
 servis katmanında yoğunlaşır (`get_available_transitions`, `can_user_perform`,
 `perform_transition`) — iş kuralları orada olduğu için (Karar 7). Ayrıca aynı
 kuralların HTTP katmanında doğru koda çevrildiği doğrulanır: yetkisiz aksiyon `403`,
-tanımsız geçiş `400`, `PUT`/`PATCH`/`DELETE` uçlarının bulunmadığı `405`.
+tanımsız geçiş `400`, `PUT`/`PATCH`/`DELETE` uçlarının bulunmadığı `405`, aşılan
+giriş denemesi sınırı `429`.
+
+## Güvenlik
+
+**Giriş denemesi sınırı.** `POST /api/token/` hız sınırlıdır (bkz. `core/views.py`).
+İki sınır birlikte uygulanır, çünkü tek başına ikisi de eksiktir:
+
+| Sınır | Oran | Neyi engeller |
+|---|---|---|
+| Kullanıcı adı başına | 5/dk | Tek bir hesaba yoğunlaşan deneme |
+| İstemci IP'si başına | 20/dk | Denemeyi farklı hesaplara yayan saldırı |
+
+Sınır kontrolü kimlik doğrulamasından **önce** çalışır: kova doluyken doğru şifre de
+`429` alır. Yenileme ucu (`/api/token/refresh/`) bilinçli olarak sınırlanmadı — şifre
+denemesi değil, arka planda otomatik çalışıyor ve ortak IP arkasındaki kullanıcıları
+sessizce oturumdan düşürme riski taşıyor.
+
+> ⚠️ **Canlı ortam için iki koşul:** (1) sayaç önbellekte tutulur; Django'nun
+> varsayılanı süreç içi önbellektir, birden fazla worker'da etkin sınır katlanır —
+> ortak bir önbellek (Redis/Memcached) tanımlanmalı. (2) Ters vekil arkasında
+> `REMOTE_ADDR` vekilin IP'sidir; gerçek istemci IP'si için vekil başlıkları
+> yapılandırılmalı, aksi halde IP sınırı tüm kullanıcıları tek kovaya koyar.
 
 Veri, `postgres_data` adlı kalıcı bir volume'de tutulur; `docker compose down`
 container'ları siler ama veriyi silmez.

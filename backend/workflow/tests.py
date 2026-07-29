@@ -6,6 +6,7 @@ kuralların HTTP katmanında doğru koda çevrildiği (403 / 400 / 200) doğrula
 """
 
 from django.contrib.auth.models import AnonymousUser, Group, User
+from django.core.cache import cache
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.test import TestCase
 from rest_framework.test import APIClient
@@ -445,3 +446,82 @@ class WorkflowInstanceAPITests(WorkflowTestBase):
         codes = [d['code'] for d in response.data]
         self.assertIn('TEST', codes)
         self.assertNotIn('PASSIVE', codes)
+
+
+class LoginThrottleTests(TestCase):
+    """Giriş ucundaki şifre deneme sınırı (core.views).
+
+    Sayaç önbellekte tutulduğu ve önbellek testler arasında paylaşıldığı için
+    her testin başında ve sonunda temizlenir — aksi halde bir testin doldurduğu
+    kova diğerini etkiler.
+    """
+
+    LOGIN_URL = '/api/token/'
+    # settings.DEFAULT_THROTTLE_RATES ile aynı olmalı.
+    USERNAME_LIMIT = 5
+    IP_LIMIT = 20
+
+    def setUp(self):
+        cache.clear()
+        self.client = APIClient()
+        self.user = User.objects.create_user('kilit_user', password='dogru-sifre-123')
+
+    def tearDown(self):
+        cache.clear()
+
+    def _login(self, username='kilit_user', password='yanlis-sifre'):
+        return self.client.post(
+            self.LOGIN_URL, {'username': username, 'password': password}, format='json'
+        )
+
+    def test_dogru_giris_normal_sartlarda_token_doner(self):
+        """Sınır, meşru girişi engellememeli."""
+        response = self._login(password='dogru-sifre-123')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('access', response.data)
+        self.assertIn('refresh', response.data)
+
+    def test_ardarda_yanlis_sifre_denemesi_429_ile_engellenir(self):
+        for deneme in range(self.USERNAME_LIMIT):
+            response = self._login()
+            self.assertEqual(
+                response.status_code, 401, f'{deneme + 1}. deneme sınıra girmemeli'
+            )
+        # Sınırı aşan deneme artık doğrulamaya bile ulaşmaz.
+        response = self._login()
+        self.assertEqual(response.status_code, 429)
+
+    def test_sinir_dolduktan_sonra_dogru_sifre_de_engellenir(self):
+        """Saldırının anlamsız hale gelmesini sağlayan asıl özellik.
+
+        Sınır kontrolü kimlik doğrulamasından önce çalıştığı için, saldırgan
+        doğru şifreyi bulsa bile kova doluyken giriş yapamaz.
+        """
+        for _ in range(self.USERNAME_LIMIT):
+            self._login()
+        response = self._login(password='dogru-sifre-123')
+        self.assertEqual(response.status_code, 429)
+
+    def test_her_kullanici_adinin_kendi_sayaci_vardir(self):
+        """Bir hesabın kilitlenmesi başka hesapların girişini engellememeli."""
+        User.objects.create_user('ikinci_user', password='dogru-sifre-456')
+        for _ in range(self.USERNAME_LIMIT + 1):
+            self._login()  # kilit_user'ın kovasını doldur
+        self.assertEqual(self._login().status_code, 429)
+
+        response = self._login(username='ikinci_user', password='dogru-sifre-456')
+        self.assertEqual(response.status_code, 200)
+
+    def test_ip_siniri_farkli_kullanici_adlarina_yayilan_denemeyi_durdurur(self):
+        """Kullanıcı adı başına sınırın kaçırdığı senaryo: her denemede farklı ad.
+
+        Her kullanıcı adı kendi kovasında 1 denemede kalır, dolayısıyla yalnızca
+        IP sınırı devreye girer.
+        """
+        for i in range(self.IP_LIMIT):
+            response = self._login(username=f'yok_{i}')
+            self.assertEqual(
+                response.status_code, 401, f'{i + 1}. deneme IP sınırına girmemeli'
+            )
+        response = self._login(username='yok_son')
+        self.assertEqual(response.status_code, 429)

@@ -22,9 +22,22 @@ function LoginPage() {
       // Başarılıysa login() token'ları localStorage'a yazar.
       await login(values.username, values.password)
       navigate('/') // korumalı ana sayfaya yönlendir
-    } catch {
-      // login hata fırlatırsa kullanıcıya anlaşılır mesaj göster.
-      setError('Kullanıcı adı veya şifre hatalı.')
+    } catch (err) {
+      // 429 = hız sınırı devreye girdi (çok fazla başarısız deneme). Bunu "şifre
+      // hatalı" olarak göstermek yanıltıcı olur — kullanıcı beklemesi gerektiğini
+      // bilmeli, aksi halde denemeye devam eder. Bekleme süresi Retry-After
+      // başlığından okunur (sunucunun mesajı İngilizce olduğu için kullanılmaz).
+      if (err.response?.status === 429) {
+        const retryAfter = Number(err.response.headers?.['retry-after'])
+        const saniye = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : null
+        setError(
+          saniye
+            ? `Çok fazla başarısız giriş denemesi. ${saniye} saniye sonra tekrar deneyin.`
+            : 'Çok fazla başarısız giriş denemesi. Lütfen bir süre sonra tekrar deneyin.',
+        )
+      } else {
+        setError('Kullanıcı adı veya şifre hatalı.')
+      }
     } finally {
       setLoading(false)
     }
