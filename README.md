@@ -106,6 +106,18 @@ kurulması gerekir:
 docker compose up -d --build
 ```
 
+### Testler
+
+```bash
+docker compose exec backend python manage.py test workflow
+```
+
+43 test; ayrı bir test veritabanında çalışır, geliştirme verisine dokunmaz. Kapsam
+servis katmanında yoğunlaşır (`get_available_transitions`, `can_user_perform`,
+`perform_transition`) — iş kuralları orada olduğu için (Karar 7). Ayrıca aynı
+kuralların HTTP katmanında doğru koda çevrildiği doğrulanır: yetkisiz aksiyon `403`,
+tanımsız geçiş `400`, `PUT`/`PATCH`/`DELETE` uçlarının bulunmadığı `405`.
+
 Veri, `postgres_data` adlı kalıcı bir volume'de tutulur; `docker compose down`
 container'ları siler ama veriyi silmez.
 
