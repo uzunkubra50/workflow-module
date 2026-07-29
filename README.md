@@ -25,20 +25,23 @@ backend/            Django tarafı
   core/             proje ayarları (settings, urls)
   workflow/         iş akışı uygulaması
     models.py       6 model (Unit, Definition, Step, Transition, Instance, Action)
-    services.py     iş mantığı — geçiş doğrulama ve yürütme
+    services.py     iş mantığı — geçiş doğrulama, yetki kontrolü, yürütme
     serializers.py  API veri dönüşümleri
     views.py        endpoint'ler
     admin.py        Django admin kayıtları
+  Dockerfile        backend imajı
 frontend/           React arayüzü
   src/pages/        Login, İş Listesi, İş Detayı ekranları
   src/api.js        axios + JWT interceptor
-docker-compose.yml  db + backend servisleri
+  Dockerfile        frontend imajı
+docker-compose.yml  db + backend + frontend servisleri
 CLAUDE.md           proje şartnamesi ve tasarım kararları
 ```
 
 ## Kurulum
 
-**Gereksinimler:** Docker, Node.js
+**Gereksinimler:** yalnızca Docker. Veritabanı, backend ve frontend'in üçü de
+container içinde çalışır; Python veya Node.js kurmanız gerekmez.
 
 ### 1. Ortam değişkenleri
 
@@ -52,11 +55,13 @@ cp backend/.env.example backend/.env
 python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
 ```
 
-### 2. Backend (Docker)
+### 2. Tüm servisleri başlat
 
 ```bash
 docker compose up -d --build
 ```
+
+Tek komut üç servisi birden ayağa kaldırır: `db`, `backend`, `frontend`.
 
 Veritabanı şemasını oluşturun ve bir yönetici kullanıcı ekleyin:
 
@@ -65,15 +70,7 @@ docker compose exec backend python manage.py migrate
 docker compose exec backend python manage.py createsuperuser
 ```
 
-### 3. Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-### 4. Süreç tanımı
+### 3. Süreç tanımı
 
 Faz 1'de süreç şablonları Django admin üzerinden girilir:
 `http://localhost:8001/admin/` → Workflow definition (süreç) → adımlar ve geçişler.
@@ -88,6 +85,29 @@ En az bir adımın `is_start` işaretli olması gerekir; yeni işler o adımdan 
 | Django admin | http://localhost:8001/admin/ |
 | Swagger UI | http://localhost:8001/api/docs/ |
 | PostgreSQL | localhost:5433 |
+
+## Geliştirme
+
+Backend ve frontend kaynak kodu container'a bağlıdır (bind mount) — dosyayı kaydettiğinizde
+değişiklik anında yansır, yeniden başlatmaya gerek yoktur.
+
+```bash
+docker compose up                     # hepsi, loglar ekranda (Ctrl+C durdurur)
+docker compose up -d                  # hepsi, arka planda
+docker compose logs -f backend        # tek servisin logunu izle
+docker compose stop frontend          # tek servisi durdur
+docker compose down                   # hepsini durdur ve kaldır (veri korunur)
+```
+
+Bağımlılık eklediğinizde (`requirements.txt` veya `package.json`) imajın yeniden
+kurulması gerekir:
+
+```bash
+docker compose up -d --build
+```
+
+Veri, `postgres_data` adlı kalıcı bir volume'de tutulur; `docker compose down`
+container'ları siler ama veriyi silmez.
 
 ## API
 
@@ -127,9 +147,18 @@ biçiminde girin.
 - **İş Akışlarım** — istatistik kartları, durum filtresi, iş listesi, yeni iş başlatma
 - **İş Detayı** — süreç ilerleme çubuğu, dinamik aksiyon butonları, işlem geçmişi
 
+Aksiyon butonları sabit değildir: mevcut adımdan tanımlı `WorkflowTransition` kayıtlarına
+göre üretilir. Kullanıcı adımın `responsible_group`'una üye değilse butonlar yerine yetki
+uyarısı gösterilir.
+
 ## Kapsam
 
-Faz 1 tamamlandı: süreç tanımı, adımlar ve geçişler, iş yürütme, işlem geçmişi,
+**Faz 1 — tamamlandı.** Süreç tanımı, adımlar ve geçişler, iş yürütme, işlem geçmişi,
 Django admin, arayüz ekranları.
+
+**Faz 2 — devam ediyor.** Rol/yetki kısıtı tamamlandı: bir kullanıcı yalnızca bulunduğu
+adımın sorumlu grubuna üyeyse aksiyon alabilir. Kontrol servis katmanındadır
+(`services.can_user_perform`), arayüzde butonların gizlenmesiyle yetinilmez — yetkisiz
+istek sunucuda `403` ile reddedilir.
 
 Tasarım kararları, faz kapsamları ve model detayları için [CLAUDE.md](CLAUDE.md).

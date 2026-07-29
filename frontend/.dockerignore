@@ -1,0 +1,15 @@
+# Bağımlılıklar — imaj kendi node_modules'ünü kurar (host'unkiyle çakışmasın)
+node_modules/
+
+# Build çıktısı
+dist/
+
+# Versiyon kontrolü
+.git/
+
+# Editör / IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store

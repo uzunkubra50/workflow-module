@@ -41,5 +41,21 @@ services:
       db:
         condition: service_healthy
 
+  frontend:
+    build: ./frontend
+    command: npm run dev
+    # Kod canlı paylaşımı (backend ile aynı desen): host'ta yapılan değişiklik anında
+    # container'da görünür. /app/node_modules anonim volume'ü, host'un (Windows) kendi
+    # node_modules'ünün, imajın içinde kurulmuş (Linux) node_modules'ün üstüne binip
+    # native bağımlılıkları (esbuild/rollup vb.) bozmasını engeller.
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    # Host 5173 -> container 5173 (Vite varsayılanı).
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
 volumes:
   postgres_data:
