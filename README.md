@@ -171,9 +171,15 @@ Uçları taramak ve canlı denemek için:
 | `/api/redoc/` | Redoc — okunması daha rahat, dokümantasyon görünümü |
 | `/api/schema/` | Ham OpenAPI 3 şeması (Postman/Insomnia'ya import edilebilir) |
 
-Korumalı uçları Swagger'da denemek için: `POST /api/token/` ile giriş yapıp dönen
-`access` değerini sayfanın üstündeki **Authorize** düğmesine `Bearer <access_token>`
-biçiminde girin.
+Korumalı uçları Swagger'da denemek için:
+
+1. `POST /api/token/` → **Try it out** → kullanıcı adı ve şifre → **Execute**
+2. Yanıttaki `access` değerini kopyalayın (tırnaklar hariç)
+3. Sayfanın üstündeki **Authorize** düğmesine basıp değeri yapıştırın
+
+> ⚠️ Authorize alanına **yalnızca token'ı** yapıştırın. Şema `http/bearer` olarak
+> tanımlı olduğu için `Bearer ` önekini Swagger kendisi ekler; elle yazarsanız
+> `Bearer Bearer <token>` gider ve istek `401` döner.
 
 ## Ekranlar
 

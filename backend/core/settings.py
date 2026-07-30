@@ -173,7 +173,9 @@ SPECTACULAR_SETTINGS = {
     'DESCRIPTION': (
         'Dijital arşiv sistemlerine entegre edilebilen bağımsız iş akışı modülü. '
         'Korumalı uçları denemek için önce /api/token/ ile access token alın, '
-        'ardından yukarıdaki "Authorize" düğmesine "Bearer <access_token>" girin.'
+        'ardından yukarıdaki "Authorize" düğmesine YALNIZCA token değerini yapıştırın. '
+        '"Bearer " önekini Swagger kendisi ekler — elle yazarsanız iki kez eklenir '
+        've istek 401 döner.'
     ),
     'VERSION': '1.0.0',
     # Şema JSON'u ayrı uçtan sunulur; dokümantasyon sayfasında listelenmesin.
