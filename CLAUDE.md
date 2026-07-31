@@ -154,9 +154,65 @@ sadece referans olarak CLAUDE.md'de duruyor.)*
 
 Faz 2 ve 3'teki hiçbir şey şimdi kodlanmayacak — sadece bu dosyada referans olarak duruyor.
 
+## Yapılan İşler / İlerleme Kaydı
+
+- Mentör geri bildirimi uygulandı: `WorkflowInstance`'a `description` (TextField) ve
+  `created_by` (FK → User, `SET_NULL`) alanları eklendi. Create serializer'da
+  `description` yazılabilir, `created_by` view'de otomatik atanıyor.
+- İş başlatma yetkisi kısıtlandı: Django'nun hazır `workflow.add_workflowinstance` izni
+  kullanılıyor, sadece bu izne sahip kullanıcılar (ya da superuser) yeni iş açabiliyor.
+  `GET /api/instances/can-create/` ile frontend butonu koşullu gösteriyor.
+- VEKALET (Delegation) sistemi eklendi: yeni model (`delegator`, `delegate`,
+  `start_date`, `end_date`, `is_active`). `services.get_effective_users(user)`
+  fonksiyonu, kullanıcının kendisi + aktif vekili olduğu kişileri döndürüyor.
+  `can_user_perform` bunu kullanacak şekilde güncellendi.
+- ÖNEMLİ DÜZELTME: `WorkflowInstanceViewSet.get_queryset` (liste filtresi), ilk
+  yazıldığında `can_user_perform`'dan BAĞIMSIZ, doğrudan `user.groups.all()`
+  kullanıyordu — vekaleti hiç bilmiyordu. Sonuç: vekil, detayda aksiyon alabiliyordu
+  ama işi listede hiç göremiyordu. Düzeltildi: artık `get_effective_users` üzerinden
+  group sorgusu yapıyor. DERS: aynı yetki kuralı birden fazla yerde (servis + queryset)
+  ayrı yazılırsa, biri güncellenip diğeri unutulabilir — ileride yeni yetki kuralı
+  eklenirse HER İKİ yerin de kontrol edilmesi gerekir.
+- Delegation API: `GET`/`POST /api/delegations/` (kendi verdiklerim), `GET
+  /api/delegations/received/` (bana verilenler). Frontend'de "Vekaletlerim" sayfası,
+  sol menüde ayrı sekme.
+- `GET /api/users/` eklendi (aktif kullanıcı listesi, vekil seçim dropdown'ı için).
+- Tüm bu değişiklikler test edildi (66 test yeşil), commit'lendi, GitHub'a push'landı.
+
 ## Çalışma Kuralları
 - Migration'ları (`makemigrations` / `migrate`) BEN (kullanıcı) kendim çalıştırıyorum.
   Dosyayı yaz, komutu benim yerime koşma.
 - Kod yazmadan önce ilgili tasarım kararını (yukarıdaki liste) kontrol et, sapma varsa
   bana sor, sessizce farklı bir yol seçme.
 - Model alanlarında belirsizlik varsa (örn. `unit` FK'si) varsayım yapıp geçme, sor.
+
+## Piyasa Araştırması Notları
+
+Mentör talebiyle yapılan araştırmanın özeti — ileride Faz 2/3 tasarımında referans:
+
+- **django-river**: bizim mimarimizle aynı yaklaşım (dinamik, veritabanında tanımlı
+  workflow) — durumlar/geçişler/yetkiler koda gömülü değil, DB'de saklı ve kod
+  değişmeden düzenlenebilir. Karşı yaklaşım (viewflow) statik/kod-içi tanım kullanıyor;
+  biz bilinçli olarak dinamik/DB-temelli yaklaşımı seçtik.
+- **Vekalet (delegation)**: incelenen tüm kurumsal sistemlerde (SAP, Oracle BPM,
+  Salesforce, Microsoft Dynamics) standart özellik — onaylayıcı izinliyken onayları
+  geçici olarak başka birine devredebiliyor. UYGULANDI (bkz. yukarı).
+- **Eskalasyon (escalation)**: SLA süresi dolunca iş otomatik olarak üst mercie/yedek
+  onaylayıcıya yönlendiriliyor. ÖNEMLİ İNCELİK: eskalasyon işi orijinal onaylayıcıdan
+  ALMIYOR, sadece daha kıdemli birine ek görünürlük/işlem yetkisi veriyor — vekaletten
+  farklı bir mekanizma (vekalet = yetki devri, eskalasyon = ek görünürlük). Faz 2 SLA
+  maddesinde bu ayrım göz önünde bulundurulmalı.
+- **Kademeli hatırlatma**: sadece "gecikti/gecikmedi" (ikili) değil, SLA süresinin
+  %50/%80/%100'ünde artan şiddette hatırlatma göndermek yaygın pratik. Faz 2 SLA
+  tasarımında bir seçenek olarak düşünülebilir.
+- **Koşullu dallanma somut örneği**: tutar/departman kodu gibi alan değerlerine göre
+  farklı onay yoluna yönlendirme (örn. tutar eşiği aşılırsa ek onay adımına gitme).
+  `WorkflowTransition.condition` alanı Faz 3'te bunun için planlı.
+- **EBYS/Türkiye pratiği**: paraf sırası (`WorkflowStep` sıralamasıyla zaten
+  modellenebiliyor), e-imza + KEP/UETS entegrasyonu (kapsam dışı, ayrı altyapı),
+  otomatik tetikleme (belge arşive düşünce iş akışının otomatik başlaması — Faz 3
+  dosya/entegrasyon maddesiyle ilgili).
+- **Audit trail standardı**: incelenen sistemlerde onay kayıtları IP adresi, zaman
+  damgası, değiştirilemez (tamper-proof) loglama ile tutuluyor (SOX/GDPR/HIPAA
+  uyumluluğu için). Bizim `WorkflowAction` modeli temel düzeyde bunu karşılıyor
+  (kim/ne zaman/hangi aksiyon), IP/tamper-proof seviyesi kapsam dışı.
