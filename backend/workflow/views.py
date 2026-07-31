@@ -9,14 +9,22 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from . import services
-from .models import Delegation, WorkflowDefinition, WorkflowInstance, WorkflowTransition
+from .models import (
+    Delegation,
+    Notification,
+    WorkflowDefinition,
+    WorkflowInstance,
+    WorkflowTransition,
+)
 from .serializers import (
     DelegationSerializer,
+    NotificationSerializer,
     WorkflowActionSerializer,
     WorkflowDefinitionSerializer,
     WorkflowInstanceCreateSerializer,
     WorkflowInstanceDetailSerializer,
     WorkflowInstanceListSerializer,
+    WorkflowStepSerializer,
 )
 
 
@@ -198,6 +206,19 @@ class WorkflowDefinitionViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = WorkflowDefinition.objects.filter(is_active=True)
     serializer_class = WorkflowDefinitionSerializer
 
+    @action(detail=True, methods=['get'], url_path='steps')
+    def steps(self, request, pk=None):
+        """GET /api/definitions/{id}/steps/ — bu sürecin TÜM adımları, sırayla.
+
+        Kanban görünümü için: her adım bir sütun olacağı için belirli bir instance'a
+        bağlı olmayan (is_current içermeyen) düz bir liste döner. related_name='steps'
+        (bkz. WorkflowStep.definition) üzerinden erişilir.
+        """
+        definition = self.get_object()
+        steps = definition.steps.order_by('order')
+        serializer = WorkflowStepSerializer(steps, many=True)
+        return Response(serializer.data)
+
 
 class DelegationViewSet(viewsets.ModelViewSet):
     """Vekalet yönetimi: kullanıcı kendi verdiği vekaletleri listeler, oluşturur, siler.
@@ -214,8 +235,15 @@ class DelegationViewSet(viewsets.ModelViewSet):
         return Delegation.objects.filter(delegator=self.request.user)
 
     def perform_create(self, serializer):
-        """Vekalet oluştururken delegator otomatik request.user olur."""
-        serializer.save(delegator=self.request.user)
+        """Vekalet oluştururken delegator otomatik request.user olur; vekile de
+        bildirim gönderilir (instance=None, bir işle ilgili değil)."""
+        delegation = serializer.save(delegator=self.request.user)
+        services.notify(
+            delegation.delegate,
+            f"{delegation.delegator} size {delegation.start_date} - "
+            f"{delegation.end_date} tarihleri arası vekalet verdi.",
+            instance=None,
+        )
 
     @action(detail=False, methods=['get'], url_path='received')
     def received(self, request):
@@ -225,6 +253,46 @@ class DelegationViewSet(viewsets.ModelViewSet):
         delegations = Delegation.objects.filter(delegate=request.user)
         serializer = self.get_serializer(delegations, many=True)
         return Response(serializer.data)
+
+
+class NotificationViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Bell ikonu bildirimleri — salt okuma + iki özel aksiyon.
+
+    ModelViewSet DEĞİL: bildirim create/update/destroy dışarıdan yapılmaz,
+    yalnızca services.notify() ile sistem içinden oluşturulur.
+    """
+
+    serializer_class = NotificationSerializer
+
+    def get_queryset(self):
+        """SADECE request.user'ın recipient olduğu bildirimler (Meta.ordering
+        zaten '-created_at', en yeni önce)."""
+        return Notification.objects.filter(recipient=self.request.user)
+
+    @action(detail=False, methods=['get'], url_path='unread-count')
+    def unread_count(self, request):
+        """GET /api/notifications/unread-count/ — bell ikonundaki sayaç için."""
+        count = self.get_queryset().filter(is_read=False).count()
+        return Response({'count': count})
+
+    @action(detail=True, methods=['post'], url_path='mark-read')
+    def mark_read(self, request, pk=None):
+        """POST /api/notifications/{id}/mark-read/ — tek bildirimi okundu yapar."""
+        notification = self.get_object()
+        notification.is_read = True
+        notification.save(update_fields=['is_read'])
+        serializer = self.get_serializer(notification)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['post'], url_path='mark-all-read')
+    def mark_all_read(self, request):
+        """POST /api/notifications/mark-all-read/ — tüm okunmamışları okundu yapar."""
+        self.get_queryset().filter(is_read=False).update(is_read=True)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 # --- Kullanıcı listesi (vekalet formundaki vekil seçimi için) ---

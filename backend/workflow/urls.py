@@ -3,6 +3,7 @@ from rest_framework.routers import DefaultRouter
 
 from .views import (
     DelegationViewSet,
+    NotificationViewSet,
     UserListView,
     WorkflowDefinitionViewSet,
     WorkflowInstanceViewSet,
@@ -16,6 +17,10 @@ router.register(r'instances', WorkflowInstanceViewSet, basename='workflowinstanc
 router.register(r'definitions', WorkflowDefinitionViewSet, basename='workflowdefinition')
 # Prefix 'delegations' -> /api/delegations/ (list, create), /api/delegations/{id}/ (retrieve, delete)
 router.register(r'delegations', DelegationViewSet, basename='delegation')
+# Prefix 'notifications' -> /api/notifications/ , /api/notifications/{id}/ ,
+# /api/notifications/unread-count/ , /api/notifications/{id}/mark-read/ ,
+# /api/notifications/mark-all-read/
+router.register(r'notifications', NotificationViewSet, basename='notification')
 
 urlpatterns = router.urls + [
     # Vekalet formundaki vekil seçimi için kullanıcı listesi.

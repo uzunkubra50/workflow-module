@@ -4,6 +4,7 @@ from rest_framework import serializers
 
 from .models import (
     Delegation,
+    Notification,
     WorkflowAction,
     WorkflowDefinition,
     WorkflowInstance,
@@ -187,6 +188,15 @@ class WorkflowDefinitionSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'code', 'unit', 'is_active']
 
 
+# GET /api/definitions/{id}/steps/ — Kanban görünümü için bir sürecin TÜM adımları,
+# sırayla. DefinitionStepSerializer'dan (bkz. yukarı) farklı: burada belirli bir
+# instance bağlamı yok, dolayısıyla is_current alanı da yok.
+class WorkflowStepSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WorkflowStep
+        fields = ['id', 'name', 'order']
+
+
 # --- Vekalet serializer'ı (CRUD) ---
 
 
@@ -230,4 +240,17 @@ class DelegationSerializer(serializers.ModelSerializer):
         if start_date and end_date and end_date < start_date:
             raise serializers.ValidationError('Bitiş tarihi başlangıçtan önce olamaz.')
         return attrs
+
+
+# --- Bildirim serializer'ı (bell ikonu) — salt okuma ---
+
+
+class NotificationSerializer(serializers.ModelSerializer):
+    """Bell ikonu bildirim listesi. instance yalnızca id olarak verilir; frontend
+    bununla /instances/{id} sayfasına link verebilir, ayrıca bilgi gerekmez."""
+
+    class Meta:
+        model = Notification
+        fields = ['id', 'message', 'is_read', 'created_at', 'instance']
+        read_only_fields = fields
 

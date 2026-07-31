@@ -2,7 +2,13 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.utils import timezone
 
-from .models import Delegation, WorkflowAction, WorkflowInstance, WorkflowTransition
+from .models import Delegation, Notification, WorkflowAction, WorkflowInstance, WorkflowTransition
+
+
+def notify(user, message, instance=None):
+    """Kullanıcıya uygulama-içi bildirim oluşturur (Faz 3). SMTP/e-posta YOK,
+    yalnızca veritabanına yazılır; frontend bell ikonuyla gösterir."""
+    Notification.objects.create(recipient=user, message=message, instance=instance)
 
 
 def get_available_transitions(instance):
@@ -175,5 +181,35 @@ def perform_transition(instance, transition, user, note=""):
             note=note,
         )
 
-    # 3) Çağıran taraf sonucu görebilsin diye oluşturulan audit kaydını döndür.
+    # 3) BİLDİRİM (Faz 3): atomic bloğun DIŞINDA ve try/except ile — bildirim
+    #    oluşturma patlarsa bile geçiş kendisi (yukarıdaki asıl işlem) başarısız
+    #    OLMASIN, bu yalnızca bir yan etki.
+    try:
+        new_step = transition.to_step
+        if new_step.responsible_group is not None:
+            for member in new_step.responsible_group.user_set.all():
+                notify(
+                    member,
+                    f"'{instance.subject}' işi '{new_step.name}' adımına geldi, "
+                    f"sizin onayınızı bekliyor.",
+                    instance,
+                )
+
+        # Süreç bittiyse (Onaylandı/Reddedildi) işi başlatan kişiye de haber ver.
+        # Basitlik için created_by, yukarıdaki responsible_group listesindeyse bile
+        # ayrıca bildirim gider — tekrar kontrolü gerekmeyecek kadar küçük bir maliyet.
+        if instance.status in (
+            WorkflowInstance.Status.COMPLETED,
+            WorkflowInstance.Status.REJECTED,
+        ) and instance.created_by is not None:
+            notify(
+                instance.created_by,
+                f"Başlattığınız '{instance.subject}' işi "
+                f"'{instance.get_status_display()}' oldu.",
+                instance,
+            )
+    except Exception:
+        pass
+
+    # 4) Çağıran taraf sonucu görebilsin diye oluşturulan audit kaydını döndür.
     return action

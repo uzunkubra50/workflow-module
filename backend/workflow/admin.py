@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from .models import (
     Delegation,
+    Notification,
     Unit,
     WorkflowAction,
     WorkflowDefinition,
@@ -83,6 +84,14 @@ class DelegationAdmin(admin.ModelAdmin):
     list_filter = ('is_active',)
 
 
+# --- Bildirim ---
+
+
+class NotificationAdmin(admin.ModelAdmin):
+    list_display = ('recipient', 'message', 'is_read', 'created_at')
+    list_filter = ('is_read',)
+
+
 # --- Kayıtlar ---
 
 admin.site.register(Unit, UnitAdmin)
@@ -92,4 +101,5 @@ admin.site.register(WorkflowTransition, WorkflowTransitionAdmin)
 admin.site.register(WorkflowInstance, WorkflowInstanceAdmin)
 admin.site.register(WorkflowAction, WorkflowActionAdmin)
 admin.site.register(Delegation, DelegationAdmin)
+admin.site.register(Notification, NotificationAdmin)
 

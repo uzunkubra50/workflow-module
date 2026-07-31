@@ -231,3 +231,36 @@ class Delegation(models.Model):
         if self.delegator_id and self.delegate_id and self.delegator_id == self.delegate_id:
             raise ValidationError('Kişi kendine vekalet veremez.')
 
+
+# --- BİLDİRİM MODELİ (Faz 3, uygulama-içi bildirim — SMTP/e-posta YOK) ---
+
+
+class Notification(models.Model):
+    """Bell ikonuyla gösterilecek uygulama-içi bildirim. `services.notify()`
+    üzerinden sistem içinden oluşturulur; e-posta/SMTP altyapısı yok."""
+
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='notifications',
+        verbose_name='Alıcı',
+    )
+    message = models.CharField(max_length=255, verbose_name='Mesaj')
+    # Bildirime tıklayınca ilgili işe gidilebilsin diye opsiyonel bağlantı.
+    instance = models.ForeignKey(
+        'WorkflowInstance',
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name='notifications',
+        verbose_name='İlgili İş',
+    )
+    is_read = models.BooleanField(default=False, verbose_name='Okundu')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.recipient} - {self.message}"
+
