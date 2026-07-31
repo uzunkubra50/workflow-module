@@ -1,7 +1,9 @@
+from django.contrib.auth import get_user_model
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from .models import (
+    Delegation,
     WorkflowAction,
     WorkflowDefinition,
     WorkflowInstance,
@@ -9,6 +11,8 @@ from .models import (
     WorkflowTransition,
 )
 from .services import can_user_perform, get_available_transitions
+
+User = get_user_model()
 
 
 # 2.3 İşlem Geçmişi ekranı — audit trail satırları. Salt okuma (geçmiş değiştirilmez).
@@ -78,6 +82,10 @@ class DefinitionStepSerializer(serializers.Serializer):
 # 2.2 İş Akışı Detayı ekranı — AĞIR: liste alanları + atanan kişi + o an yapılabilecek geçişler.
 class WorkflowInstanceDetailSerializer(WorkflowInstanceListSerializer):
     assigned_to = serializers.CharField(source='assigned_to.username', read_only=True)
+    # Mentör geri bildirimi: işi kimin başlattığı, assigned_to ile aynı konvansiyonla
+    # (id yerine kullanıcı adı) gösterilir. Salt okuma; created_by kullanıcıdan alınmaz,
+    # create sırasında view'de (perform_create) otomatik atanır.
+    created_by = serializers.CharField(source='created_by.username', read_only=True)
     # Bu instance'ın şu anki adımından yapılabilecek izinli geçişler (Karar 7, servisten).
     # Salt okuma; kullanıcı bunlardan birini seçip ayrı aksiyon endpoint'ine gönderecek.
     available_transitions = serializers.SerializerMethodField()
@@ -91,6 +99,8 @@ class WorkflowInstanceDetailSerializer(WorkflowInstanceListSerializer):
     class Meta(WorkflowInstanceListSerializer.Meta):
         fields = WorkflowInstanceListSerializer.Meta.fields + [
             'assigned_to',
+            'created_by',
+            'description',
             'available_transitions',
             'definition_steps',
             'can_perform_action',
@@ -130,8 +140,9 @@ class WorkflowInstanceDetailSerializer(WorkflowInstanceListSerializer):
 
 
 # 3.1 Sürece bağlama / yeni iş başlatma — YAZMA amaçlı (create body'sini kabul eder).
-# Kullanıcı yalnızca definition + subject (+ opsiyonel document_ref/assigned_to) gönderir.
-# current_step ve status kullanıcıdan ALINMAZ; backend belirler (Yol C: başlangıç adımı otomatik).
+# Kullanıcı yalnızca definition + subject (+ opsiyonel document_ref/assigned_to/description)
+# gönderir. current_step, status ve created_by kullanıcıdan ALINMAZ; backend belirler
+# (Yol C: başlangıç adımı otomatik, created_by: view'de perform_create ile otomatik).
 class WorkflowInstanceCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = WorkflowInstance
@@ -141,6 +152,7 @@ class WorkflowInstanceCreateSerializer(serializers.ModelSerializer):
             'subject',
             'document_ref',
             'assigned_to',
+            'description',
         ]
         read_only_fields = ['id']
 
@@ -173,3 +185,49 @@ class WorkflowDefinitionSerializer(serializers.ModelSerializer):
     class Meta:
         model = WorkflowDefinition
         fields = ['id', 'name', 'code', 'unit', 'is_active']
+
+
+# --- Vekalet serializer'ı (CRUD) ---
+
+
+class DelegationSerializer(serializers.ModelSerializer):
+    """Vekalet kayıtları için okuma/yazma serializer'ı.
+
+    delegator salt okuma — view'de request.user otomatik atanır.
+    delegate yazılırken id (PrimaryKeyRelatedField), okurken username gösterilir.
+    """
+
+    # Okuma: kullanıcı adlarını göster.
+    delegator = serializers.CharField(source='delegator.username', read_only=True)
+    # Yazma: delegate id olarak gönderilir; queryset=User.objects.all() ile doğrulanır.
+    delegate = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
+    # Okuma: delegate'in kullanıcı adı (id yanında okunabilir isim).
+    delegate_username = serializers.CharField(source='delegate.username', read_only=True)
+
+    class Meta:
+        model = Delegation
+        fields = [
+            'id',
+            'delegator',
+            'delegate',
+            'delegate_username',
+            'start_date',
+            'end_date',
+            'is_active',
+            'created_at',
+        ]
+        read_only_fields = ['id', 'delegator', 'created_at']
+
+    def validate(self, attrs):
+        """Model.clean()'deki validasyonları serializer düzeyinde de uygula."""
+        # delegate ve delegator (request.user) aynı kişi mi?
+        request = self.context.get('request')
+        if request and attrs.get('delegate') and attrs['delegate'] == request.user:
+            raise serializers.ValidationError('Kişi kendine vekalet veremez.')
+        # Tarih kontrolü.
+        start_date = attrs.get('start_date')
+        end_date = attrs.get('end_date')
+        if start_date and end_date and end_date < start_date:
+            raise serializers.ValidationError('Bitiş tarihi başlangıçtan önce olamaz.')
+        return attrs
+

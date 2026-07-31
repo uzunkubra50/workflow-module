@@ -1,6 +1,7 @@
 from django.contrib import admin
 
 from .models import (
+    Delegation,
     Unit,
     WorkflowAction,
     WorkflowDefinition,
@@ -49,7 +50,16 @@ class WorkflowTransitionAdmin(admin.ModelAdmin):
 
 
 class WorkflowInstanceAdmin(admin.ModelAdmin):
-    list_display = ('subject', 'definition', 'current_step', 'status', 'assigned_to')
+    # description alanı burada listelenmiyor (TextField, tabloyu bozar); form ekranında
+    # zaten düzenlenebilir — herhangi bir readonly_fields kısıtı yok, ekstra kod gerekmez.
+    list_display = (
+        'subject',
+        'definition',
+        'current_step',
+        'status',
+        'assigned_to',
+        'created_by',
+    )
     list_filter = ('status', 'definition')
 
 
@@ -65,6 +75,14 @@ class WorkflowActionAdmin(admin.ModelAdmin):
     list_filter = ('action_type', 'created_at')
 
 
+# --- Vekalet ---
+
+
+class DelegationAdmin(admin.ModelAdmin):
+    list_display = ('delegator', 'delegate', 'start_date', 'end_date', 'is_active')
+    list_filter = ('is_active',)
+
+
 # --- Kayıtlar ---
 
 admin.site.register(Unit, UnitAdmin)
@@ -73,3 +91,5 @@ admin.site.register(WorkflowStep, WorkflowStepAdmin)
 admin.site.register(WorkflowTransition, WorkflowTransitionAdmin)
 admin.site.register(WorkflowInstance, WorkflowInstanceAdmin)
 admin.site.register(WorkflowAction, WorkflowActionAdmin)
+admin.site.register(Delegation, DelegationAdmin)
+

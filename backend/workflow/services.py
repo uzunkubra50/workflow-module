@@ -1,7 +1,8 @@
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
+from django.utils import timezone
 
-from .models import WorkflowAction, WorkflowInstance, WorkflowTransition
+from .models import Delegation, WorkflowAction, WorkflowInstance, WorkflowTransition
 
 
 def get_available_transitions(instance):
@@ -35,17 +36,47 @@ def get_available_transitions(instance):
     )
 
 
+def get_effective_users(user):
+    """Kullanıcının adına hareket edebileceği kişilerin listesini döndürür.
+
+    Vekalet mantığı: bugünün tarihi start_date–end_date aralığında olan ve
+    is_active=True olan Delegation kayıtlarında delegate=user olanların
+    delegator'larını toplar.
+
+    Döndürür:
+        list[User]: [user] + [vekaleten temsil edilen delegator'lar]
+    """
+    today = timezone.now().date()
+    # Bu kullanıcıya verilmiş ve bugün geçerli olan aktif vekaletler.
+    delegator_ids = (
+        Delegation.objects.filter(
+            delegate=user,
+            is_active=True,
+            start_date__lte=today,
+            end_date__gte=today,
+        )
+        .values_list('delegator_id', flat=True)
+    )
+    # Kendisi + vekili olduğu kişiler. Delegator nesneleri lazy olarak çekilir.
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    delegators = list(User.objects.filter(pk__in=delegator_ids))
+    return [user] + delegators
+
+
 def can_user_perform(user, instance):
     """Kullanıcının, instance'ın MEVCUT adımında aksiyon alıp alamayacağını kontrol eder.
 
-    Faz 2, rol/yetki kısıtı: bir kullanıcı ancak bulunduğu adımın responsible_group'una
+    Faz 2, rol/yetki kısıtı + vekalet desteği: bir kullanıcı ancak bulunduğu adımın
+    responsible_group'una (kendisi VEYA vekili olduğu kişilerden biri aracılığıyla)
     üyeyse aksiyon alabilir. Kontrol sırası:
         1. user yok / anonim ise -> False.
         2. user.is_superuser ise -> True (yönetici acil müdahale için her zaman yetkili).
         3. instance.current_step None ise -> False (savunmacı kontrol).
         4. current_step.responsible_group None ise -> True (sorumlu grup atanmamışsa
            kısıt yok: "kimse sorumlu değil" = "herkes yapabilir").
-        5. Aksi halde: user, o responsible_group'a üye mi?
+        5. Aksi halde: effective_users (user + vekili olduğu kişiler) içinden
+           herhangi biri responsible_group'a üye mi?
 
     Girdi:
         user: aksiyonu almak isteyen kullanıcı (AnonymousUser da olabilir).
@@ -67,7 +98,13 @@ def can_user_perform(user, instance):
     if responsible_group is None:
         return True
 
-    return user.groups.filter(pk=responsible_group.pk).exists()
+    # Vekalet desteği: kullanıcı + vekili olduğu kişilerin herhangi birinin
+    # sorumlu gruba üye olup olmadığını kontrol et.
+    effective_users = get_effective_users(user)
+    for u in effective_users:
+        if u.groups.filter(pk=responsible_group.pk).exists():
+            return True
+    return False
 
 
 def perform_transition(instance, transition, user, note=""):

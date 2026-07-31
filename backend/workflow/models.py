@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.contrib.auth.models import Group
+from django.core.exceptions import ValidationError
 from django.db import models
 
 
@@ -122,8 +123,23 @@ class WorkflowInstance(models.Model):
         blank=True,
         on_delete=models.SET_NULL,
     )
+    # Mentör geri bildirimi: işi kimin başlattığının kaydı. related_name ZORUNLU —
+    # assigned_to da aynı modele (User) FK, related_name verilmezse ikisi de varsayılan
+    # 'workflowinstance_set' adını ister ve Django E304 (reverse accessor çakışması) verir.
+    # SET_NULL: kullanıcı silinirse iş etkilenmesin, sadece "kim başlattı" bilgisi kaybolsun.
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='created_instances',
+        verbose_name='Başlatan',
+    )
     # Karar 1 / Ek not: FK DEĞİL — belge başka bir veritabanında olabilir, serbest kimlik.
     document_ref = models.CharField(max_length=255, blank=True)
+    # Serbest açıklama/detay metni (mentör geri bildirimi) — örn. imha sürecinde hangi
+    # evrakların imha edileceğinin listesi gibi ek bilgiler.
+    description = models.TextField(blank=True, verbose_name='Açıklama')
     # Ekran 2.1 listede tarih gösterir. Türetilemez: yeni açılan işin henüz hiç
     # WorkflowAction kaydı olmadığı için geçmişten tarih çıkarmak mümkün değil.
     created_at = models.DateTimeField(auto_now_add=True)
@@ -176,3 +192,42 @@ class WorkflowAction(models.Model):
         frm = self.from_step.name if self.from_step else '—'
         to = self.to_step.name if self.to_step else '—'
         return f"{self.instance.subject}: {frm} → {to}"
+
+
+# --- VEKALET MODELİ (bir kullanıcının işlerini geçici olarak başka birine devretmesi) ---
+
+
+class Delegation(models.Model):
+    """Vekalet kaydı: delegator, belirli bir tarih aralığında kendi adına
+    delegate'in işlem yapmasına izin verir. SAP/Oracle/Dynamics standart özelliği."""
+
+    delegator = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='delegations_given',
+        verbose_name='Vekalet Veren',
+    )
+    delegate = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='delegations_received',
+        verbose_name='Vekil',
+    )
+    start_date = models.DateField(verbose_name='Başlangıç')
+    end_date = models.DateField(verbose_name='Bitiş')
+    is_active = models.BooleanField(default=True, verbose_name='Aktif')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.delegator} → {self.delegate} ({self.start_date} - {self.end_date})"
+
+    def clean(self):
+        """Tarih ve kendi-kendine vekalet validasyonları."""
+        if self.end_date and self.start_date and self.end_date < self.start_date:
+            raise ValidationError('Bitiş tarihi başlangıçtan önce olamaz.')
+        if self.delegator_id and self.delegate_id and self.delegator_id == self.delegate_id:
+            raise ValidationError('Kişi kendine vekalet veremez.')
+

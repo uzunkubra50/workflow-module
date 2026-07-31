@@ -21,6 +21,7 @@ import {
   ArrowLeftOutlined,
   EnvironmentOutlined,
   TeamOutlined,
+  UserOutlined,
 } from '@ant-design/icons'
 import api from '../api.js'
 
@@ -222,6 +223,24 @@ function InstanceDetailPage() {
         </Descriptions.Item>
         <Descriptions.Item label="Belge">{instance.document_ref || '—'}</Descriptions.Item>
         <Descriptions.Item label="Atanan">{instance.assigned_to || '—'}</Descriptions.Item>
+
+        {/* Başlatan kullanıcı — backend created_by (username) döner. */}
+        <Descriptions.Item
+          label={
+            <Space size="small">
+              <UserOutlined /> Başlatan
+            </Space>
+          }
+        >
+          {instance.created_by || '—'}
+        </Descriptions.Item>
+
+        {/* Açıklama — uzun metin olabilir, tüm satırı kaplasın. */}
+        <Descriptions.Item label="Açıklama" span={3}>
+          <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+            {instance.description || '—'}
+          </span>
+        </Descriptions.Item>
       </Descriptions>
 
       {/* Süreç ilerleme çubuğu: sürecin tüm adımları + hangisinin şu an işlendiği. */}

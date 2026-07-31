@@ -4,6 +4,7 @@ import { Avatar, Breadcrumb, Dropdown, Layout, Menu, Typography } from 'antd'
 import {
   DeploymentUnitOutlined,
   LogoutOutlined,
+  SwapOutlined,
   UnorderedListOutlined,
   UserOutlined,
 } from '@ant-design/icons'
@@ -15,20 +16,26 @@ const { Text } = Typography
 // Kurumsal lacivert — Sider/Menu/marka alanının ortak zemin rengi.
 const NAVY = '#0f2540'
 
-// Sol menü öğeleri. Şimdilik tek öge var; ileride yeni sayfalar eklenince
-// key/label listesi büyür, selectedKeys mantığı da gerçek eşlemeye geçer.
 const menuItems = [
   {
     key: '/',
     icon: <UnorderedListOutlined />,
     label: <Link to="/">İş Akışlarım</Link>,
   },
+  {
+    key: '/delegations',
+    icon: <SwapOutlined />,
+    label: <Link to="/delegations">Vekalet</Link>,
+  },
 ]
 
-// URL yoluna göre breadcrumb öğelerini üretir (basit, iki durumlu eşleme).
+// URL yoluna göre breadcrumb öğelerini üretir.
 function getBreadcrumbItems(pathname) {
   if (pathname.startsWith('/instances/')) {
     return [{ title: <Link to="/">İş Akışlarım</Link> }, { title: 'İş Detayı' }]
+  }
+  if (pathname.startsWith('/delegations')) {
+    return [{ title: 'Vekaletlerim' }]
   }
   return [{ title: 'İş Akışlarım' }]
 }
@@ -96,9 +103,8 @@ function AppLayout({ children }) {
         <Menu
           theme="dark"
           mode="inline"
-          // Şimdilik tek menü ögesi olduğu için sabit; birden fazla sayfa eklenince
-          // location.pathname'e göre gerçek eşleme yapılacak.
-          selectedKeys={['/']}
+          // Hangi sayfadaysak o menü seçili görünsün (/instances detay sayfaları da '/' altında vurgulanır).
+          selectedKeys={[location.pathname.startsWith('/delegations') ? '/delegations' : '/']}
           items={menuItems}
           style={{ background: NAVY }}
         />

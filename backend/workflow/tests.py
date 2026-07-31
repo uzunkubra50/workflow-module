@@ -410,8 +410,15 @@ class WorkflowInstanceAPITests(WorkflowTestBase):
         self.assertEqual(response.data[1]['action_name'], 'İade')
 
     def test_yeni_is_baslangic_adimina_atanir(self):
-        """3.1 Yol C: current_step kullanıcıdan alınmaz, is_start adımı atanır."""
-        self.client.force_authenticate(user=self.user_evrak)
+        """3.1 Yol C: current_step kullanıcıdan alınmaz, is_start adımı atanır.
+
+        Burada test edilen "başlangıç adımı doğru atanıyor mu" mantığı — iş
+        başlatma İZNİ değil (izin kontrolü perform_create içinde ayrı bir
+        kural, 'workflow.add_workflowinstance'). user_evrak'ta bu izin
+        olmadığı için 403 alınırdı ve bu test yanlışlıkla izin mantığını test
+        etmiş olurdu; o yüzden izni her zaman olan admin kullanılıyor.
+        """
+        self.client.force_authenticate(user=self.admin)
         response = self.client.post(
             '/api/instances/',
             {'definition': self.definition.pk, 'subject': 'Yeni iş'},
@@ -423,10 +430,13 @@ class WorkflowInstanceAPITests(WorkflowTestBase):
         self.assertEqual(created.status, WorkflowInstance.Status.ACTIVE)
 
     def test_baslangic_adimi_olmayan_surecte_is_baslatilamaz(self):
+        """Aynı gerekçeyle burada da admin kullanılıyor — amaç, başlangıç adımı
+        olmayan bir süreçte oluşturmanın 400 döndüğünü test etmek, izin
+        mantığını değil."""
         bos_definition = WorkflowDefinition.objects.create(
             name='Adımsız Süreç', code='EMPTY'
         )
-        self.client.force_authenticate(user=self.user_evrak)
+        self.client.force_authenticate(user=self.admin)
         response = self.client.post(
             '/api/instances/',
             {'definition': bos_definition.pk, 'subject': 'Olmayacak iş'},

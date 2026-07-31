@@ -1,13 +1,16 @@
+from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Q
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from . import services
-from .models import WorkflowDefinition, WorkflowInstance, WorkflowTransition
+from .models import Delegation, WorkflowDefinition, WorkflowInstance, WorkflowTransition
 from .serializers import (
+    DelegationSerializer,
     WorkflowActionSerializer,
     WorkflowDefinitionSerializer,
     WorkflowInstanceCreateSerializer,
@@ -83,8 +86,35 @@ class WorkflowInstanceViewSet(
             return WorkflowInstanceCreateSerializer
         return WorkflowInstanceDetailSerializer
 
-    # TODO: ileride create sırasında current_step otomatik olarak is_start=True adımına
-    # atanabilir; şimdilik current_step request'te verilir (fazla mantık eklenmedi).
+    def perform_create(self, serializer):
+        """POST /api/instances/ (3.1 Yeni İş Başlat): oluşturma yetkisini kontrol eder
+        ve kaydı oluşturan kullanıcıyı created_by'a otomatik yazar.
+
+        Mentör geri bildirimi: herkes iş başlatamamalı, yalnızca yetkili kullanıcılar
+        (amir/memur/yönetici) başlatabilmeli. Bunun için Django'nun HAZIR izin sistemi
+        kullanılıyor — 'workflow.add_workflowinstance' migration sırasında OTOMATİK
+        üretilir, ayrı bir izin modeli yazılmadı.
+
+        Bu kısıtlama SADECE create içindir: list/retrieve/perform-action/actions
+        etkilenmez, onlar kendi mevcut kurallarıyla (liste filtresi, can_user_perform)
+        çalışmaya devam eder.
+
+        Superuser her zaman yetkilidir (can_user_perform'daki superuser kuralıyla
+        tutarlı; ayrıca Django'nun has_perm'i de superuser için zaten True döner).
+        """
+        user = self.request.user
+        if not (user.is_superuser or user.has_perm('workflow.add_workflowinstance')):
+            raise PermissionDenied('İş başlatma yetkiniz yok.')
+        serializer.save(created_by=user)
+
+    @action(detail=False, methods=['get'], url_path='can-create')
+    def can_create(self, request):
+        """GET /api/instances/can-create/ — frontend'in "Yeni İş Başlat" butonunu
+        gösterip gizlemesi için. perform_create'teki yetki kuralıyla aynı mantık;
+        burada yalnızca sonucu döndürür, hiçbir kayıt oluşturmaz/değiştirmez."""
+        user = request.user
+        can_create = user.is_superuser or user.has_perm('workflow.add_workflowinstance')
+        return Response({'can_create': can_create})
 
     @action(detail=True, methods=['post'], url_path='perform-action')
     def perform_action(self, request, pk=None):
@@ -152,3 +182,42 @@ class WorkflowDefinitionViewSet(viewsets.ReadOnlyModelViewSet):
 
     queryset = WorkflowDefinition.objects.filter(is_active=True)
     serializer_class = WorkflowDefinitionSerializer
+
+
+class DelegationViewSet(viewsets.ModelViewSet):
+    """Vekalet yönetimi: kullanıcı kendi verdiği vekaletleri listeler, oluşturur, siler.
+
+    - get_queryset: yalnızca request.user'ın delegator olduğu kayıtlar.
+    - perform_create: delegator otomatik request.user olarak atanır.
+    - İzin: IsAuthenticated (giriş yapan herkes kendi vekaletini yönetebilir).
+    """
+
+    serializer_class = DelegationSerializer
+
+    def get_queryset(self):
+        """Kullanıcı yalnızca kendi verdiği vekaletleri görür."""
+        return Delegation.objects.filter(delegator=self.request.user)
+
+    def perform_create(self, serializer):
+        """Vekalet oluştururken delegator otomatik request.user olur."""
+        serializer.save(delegator=self.request.user)
+
+
+# --- Kullanıcı listesi (vekalet formundaki vekil seçimi için) ---
+
+User = get_user_model()
+
+
+class UserListView(APIView):
+    """GET /api/users/ — aktif kullanıcıların id + username listesi.
+
+    Yalnızca vekalet formundaki Select dropdown'ına veri sağlamak için.
+    İzin: IsAuthenticated (varsayılan DRF ayarından devralır).
+    """
+
+    def get(self, request):
+        users = User.objects.filter(is_active=True).order_by('username')
+        data = [{'id': u.id, 'username': u.username} for u in users]
+        return Response(data)
+
+

@@ -121,6 +121,9 @@ function InstanceListPage() {
   const [definitions, setDefinitions] = useState([]) // süreç dropdown'ı
   const [creating, setCreating] = useState(false) // form gönderiliyor mu
 
+  // Kullanıcının yeni iş başlatma yetkisi olup olmadığı (can-create endpoint'inden gelir).
+  const [canCreate, setCanCreate] = useState(false)
+
   const [form] = Form.useForm()
   const navigate = useNavigate()
 
@@ -138,10 +141,18 @@ function InstanceListPage() {
     }
   }, [])
 
-  // Mount'ta veriyi yükle (inline async sarmalayıcı — effect'ten güvenli çağrı).
+  // Mount'ta veriyi yükle + yetki kontrolünü çek.
   useEffect(() => {
     async function run() {
       await fetchInstances()
+
+      // Kullanıcının iş başlatma yetkisini kontrol et. Hata olursa sessizce false kalır.
+      try {
+        const res = await api.get('/api/instances/can-create/')
+        setCanCreate(res.data.can_create)
+      } catch {
+        // Yetki bilgisi alınamazsa buton gizli kalır — güvenli varsayılan.
+      }
     }
     run()
   }, [fetchInstances])
@@ -194,11 +205,16 @@ function InstanceListPage() {
     setCreating(true)
     try {
       // Backend başlangıç adımını + status'u kendisi atar; biz yalnızca şunları göndeririz.
-      await api.post('/api/instances/', {
+      // description opsiyonel — boşsa göndermiyoruz, backend zaten kabul ediyor.
+      const payload = {
         definition: values.definition,
         subject: values.subject,
         document_ref: values.document_ref || '',
-      })
+      }
+      if (values.description) {
+        payload.description = values.description
+      }
+      await api.post('/api/instances/', payload)
       closeCreateModal()
       message.success('Yeni iş başlatıldı.')
       await fetchInstances() // liste yenilensin, yeni iş görünsün
@@ -279,9 +295,12 @@ function InstanceListPage() {
         <Title level={3} style={{ margin: 0 }}>
           İş Akışlarım
         </Title>
-        <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
-          Yeni İş Başlat
-        </Button>
+        {/* Yeni iş başlatma butonu yalnızca yetkili kullanıcılara gösterilir. */}
+        {canCreate && (
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
+            Yeni İş Başlat
+          </Button>
+        )}
       </div>
 
       {/* a) İstatistik kartları (responsive). Yatay+dikey gutter: mobilde alt alta
@@ -384,6 +403,14 @@ function InstanceListPage() {
             rules={[{ required: true, message: 'Konu zorunludur.' }]}
           >
             <Input placeholder="İşin konusu" />
+          </Form.Item>
+
+          {/* Açıklama alanı — opsiyonel, backend boş kabul eder. */}
+          <Form.Item label="Açıklama" name="description">
+            <Input.TextArea
+              rows={3}
+              placeholder="İşle ilgili açıklama/detay (opsiyonel)"
+            />
           </Form.Item>
 
           <Form.Item label="Belge Referansı" name="document_ref">

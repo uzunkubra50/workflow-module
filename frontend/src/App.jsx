@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import LoginPage from './pages/LoginPage.jsx'
 import InstanceListPage from './pages/InstanceListPage.jsx'
 import InstanceDetailPage from './pages/InstanceDetailPage.jsx'
+import DelegationPage from './pages/DelegationPage.jsx'
 import ProtectedRoute from './components/ProtectedRoute.jsx'
 import AppLayout from './components/AppLayout.jsx'
 
@@ -31,6 +32,18 @@ function App() {
           <ProtectedRoute>
             <AppLayout>
               <InstanceDetailPage />
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Vekaletlerim — korumalı, ortak layout içinde. */}
+      <Route
+        path="/delegations"
+        element={
+          <ProtectedRoute>
+            <AppLayout>
+              <DelegationPage />
             </AppLayout>
           </ProtectedRoute>
         }
