@@ -5,13 +5,17 @@ geçişleri iş mantığının kalbi olduğu için önce onlar test edilir. Ard�
 kuralların HTTP katmanında doğru koda çevrildiği (403 / 400 / 200) doğrulanır.
 """
 
+from datetime import timedelta
+
 from django.contrib.auth.models import AnonymousUser, Group, User
 from django.core.cache import cache
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from .models import (
+    Delegation,
     Unit,
     WorkflowAction,
     WorkflowDefinition,
@@ -558,6 +562,67 @@ class InstanceListFilterTests(WorkflowTestBase):
         response = self.client.get(f'/api/instances/{self.mudur_isi.pk}/actions/')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.data), 1)
+
+
+class DelegationListFilterTests(WorkflowTestBase):
+    """Liste filtresinin vekaleti (Delegation) doğru uyguladığını doğrular.
+
+    Gerçek bir hatanın regresyon testi: can_user_perform (services) vekaleti
+    get_effective_users üzerinden doğru uyguluyordu, bu yüzden 2.2 detay ekranında
+    butonlar doğru çıkıyordu. Ama get_queryset'teki liste filtresi hâlâ doğrudan
+    user.groups.all()'a bakıyordu — vekaleti hiç bilmiyordu. Sonuç: vekil, işte
+    aksiyon alabilecek olsa bile işi listede hiç göremiyordu, dolayısıyla ona hiç
+    ulaşamıyordu. get_queryset artık get_effective_users kullanıyor.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.client = APIClient()
+        self.bugun = timezone.now().date()
+        # evrak_user (delegator) -> mudur_user (delegate), bugünü kapsayan aktif vekalet.
+        self.delegation = Delegation.objects.create(
+            delegator=self.user_evrak,
+            delegate=self.user_mudur,
+            start_date=self.bugun,
+            end_date=self.bugun + timedelta(days=1),
+            is_active=True,
+        )
+
+    def _liste_konulari(self, user):
+        self.client.force_authenticate(user=user)
+        response = self.client.get('/api/instances/')
+        self.assertEqual(response.status_code, 200)
+        return [i['subject'] for i in response.data]
+
+    def test_aktif_vekaletle_vekil_delegatorun_isini_listede_gorur(self):
+        """self.instance, Evrak Birimi'nin sorumlu olduğu 'Başvuru' adımında.
+        mudur_user kendi grubunda değil ama evrak_user'a vekil, bu yüzden görmeli."""
+        self.assertIn('Test başvurusu', self._liste_konulari(self.user_mudur))
+
+    def test_suresi_gecmis_vekalet_isi_gostermez(self):
+        self.delegation.start_date = self.bugun - timedelta(days=5)
+        self.delegation.end_date = self.bugun - timedelta(days=1)
+        self.delegation.save()
+        self.assertNotIn('Test başvurusu', self._liste_konulari(self.user_mudur))
+
+    def test_henuz_baslamamis_vekalet_isi_gostermez(self):
+        self.delegation.start_date = self.bugun + timedelta(days=1)
+        self.delegation.end_date = self.bugun + timedelta(days=5)
+        self.delegation.save()
+        self.assertNotIn('Test başvurusu', self._liste_konulari(self.user_mudur))
+
+    def test_pasif_vekalet_isi_gostermez(self):
+        self.delegation.is_active = False
+        self.delegation.save()
+        self.assertNotIn('Test başvurusu', self._liste_konulari(self.user_mudur))
+
+    def test_vekalet_delegatorun_kendi_gorusunu_bozmaz(self):
+        """evrak_user (delegator) vekalet verdikten sonra da kendi işini görmeye devam eder."""
+        self.assertIn('Test başvurusu', self._liste_konulari(self.user_evrak))
+
+    def test_vekalet_ilgisiz_kullaniciyi_etkilemez(self):
+        """Vekalette hiç yeri olmayan bagimsiz_user hâlâ hiçbir şey görmez."""
+        self.assertEqual(self._liste_konulari(self.user_bagimsiz), [])
 
 
 class LoginThrottleTests(TestCase):

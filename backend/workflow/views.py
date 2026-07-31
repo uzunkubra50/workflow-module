@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Q
 from rest_framework import mixins, status, viewsets
@@ -57,6 +58,15 @@ class WorkflowInstanceViewSet(
 
         Yönetici (superuser) istisnadır: denetim ve acil müdahale için hepsini görür.
 
+        VEKALET DÜZELTMESİ: "şu an bende olan" ölçütü artık yalnızca kullanıcının
+        kendi gruplarına değil, get_effective_users(user) (kendisi + vekaleten temsil
+        ettiği kişiler) üzerinden birleşik gruplara bakıyor. Önceden burada doğrudan
+        user.groups.all() kullanılıyordu — can_user_perform vekaleti doğru uyguladığı
+        için detay ekranında (2.2) butonlar doğru çıkıyordu, ama bu liste filtresi
+        vekaleti hiç bilmediği için vekaleten sorumlu olunan iş listede hiç
+        görünmüyordu: kullanıcı butonu görebilecek olduğu işe erişemiyordu, çünkü
+        işi listede hiç bulamıyordu.
+
         AÇIK KALAN NOKTA: bir işi açıp hiç işlem yapmayan kullanıcı onu göremez —
         ne created_by alanı var, ne assigned_to dolduruluyor. Bu bir kapsam sorusu,
         cevap gelince ele alınacak.
@@ -71,9 +81,14 @@ class WorkflowInstanceViewSet(
         if user.is_superuser:
             return queryset
 
+        # can_user_perform ile AYNI vekalet mantığı: kendisi + vekaleten temsil
+        # ettiği kişilerin gruplarının birleşimi.
+        effective_users = services.get_effective_users(user)
+        responsible_groups = Group.objects.filter(user__in=effective_users).distinct()
+
         # distinct(): actions üzerinden JOIN, çok aksiyonlu işi mükerrer döndürür.
         return queryset.filter(
-            Q(current_step__responsible_group__in=user.groups.all())
+            Q(current_step__responsible_group__in=responsible_groups)
             | Q(actions__performed_by=user)
         ).distinct()
 
