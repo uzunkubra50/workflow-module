@@ -13,6 +13,7 @@ import {
   Typography,
 } from 'antd'
 import {
+  BarChartOutlined,
   BellOutlined,
   DeploymentUnitOutlined,
   LogoutOutlined,
@@ -39,6 +40,11 @@ const menuItems = [
     icon: <SwapOutlined />,
     label: <Link to="/delegations">Vekalet</Link>,
   },
+  {
+    key: '/analytics',
+    icon: <BarChartOutlined />,
+    label: <Link to="/analytics">Panom</Link>,
+  },
 ]
 
 // URL yoluna göre breadcrumb öğelerini üretir.
@@ -48,6 +54,9 @@ function getBreadcrumbItems(pathname) {
   }
   if (pathname.startsWith('/delegations')) {
     return [{ title: 'Vekaletlerim' }]
+  }
+  if (pathname.startsWith('/analytics')) {
+    return [{ title: 'Panom' }]
   }
   return [{ title: 'İş Akışlarım' }]
 }
@@ -248,7 +257,13 @@ function AppLayout({ children }) {
           theme="dark"
           mode="inline"
           // Hangi sayfadaysak o menü seçili görünsün (/instances detay sayfaları da '/' altında vurgulanır).
-          selectedKeys={[location.pathname.startsWith('/delegations') ? '/delegations' : '/']}
+          selectedKeys={[
+            location.pathname.startsWith('/delegations')
+              ? '/delegations'
+              : location.pathname.startsWith('/analytics')
+                ? '/analytics'
+                : '/',
+          ]}
           items={menuItems}
           style={{ background: NAVY }}
         />

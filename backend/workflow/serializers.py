@@ -68,6 +68,10 @@ class WorkflowInstanceListSerializer(serializers.ModelSerializer):
             'current_step',
             'definition',
             'created_at',
+            # Faz 2 SLA: model property'si. Açıkça bir field tipi belirtmedik —
+            # DRF ModelSerializer, model üzerindeki salt-okuma property'leri otomatik
+            # olarak ReadOnlyField'a çevirir.
+            'is_overdue',
         ]
 
 

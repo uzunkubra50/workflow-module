@@ -1,8 +1,17 @@
+from collections import defaultdict
+
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.utils import timezone
 
-from .models import Delegation, Notification, WorkflowAction, WorkflowInstance, WorkflowTransition
+from .models import (
+    Delegation,
+    Notification,
+    WorkflowAction,
+    WorkflowInstance,
+    WorkflowStep,
+    WorkflowTransition,
+)
 
 
 def notify(user, message, instance=None):
@@ -164,6 +173,11 @@ def perform_transition(instance, transition, user, note=""):
         from_step = instance.current_step  # geçişten ÖNCEki adım — audit için sakla
 
         instance.current_step = transition.to_step
+        # Faz 2 SLA: yeni adımda süre baştan sayılsın diye giriş zamanı sıfırlanır;
+        # escalated de sıfırlanır ki bu adımda süre yeniden aşılırsa tekrar eskalasyon
+        # yapılabilsin (aksi halde önceki adımdan kalan True hiç bildirim gitmesini engeller).
+        instance.current_step_entered_at = timezone.now()
+        instance.escalated = False
         if transition.to_step.is_end:
             if transition.action_type == WorkflowTransition.ActionType.REJECT:
                 instance.status = WorkflowInstance.Status.REJECTED
@@ -213,3 +227,137 @@ def perform_transition(instance, transition, user, note=""):
 
     # 4) Çağıran taraf sonucu görebilsin diye oluşturulan audit kaydını döndür.
     return action
+
+
+def check_and_escalate():
+    """Faz 2 SLA: süresi geçmiş (is_overdue) ve henüz eskalasyona uğramamış aktif
+    işleri tarar, eskalasyon grubuna bildirim gönderir.
+
+    Gerçek bir sistemde bu fonksiyon bir cron/Celery periyodik görevi ile otomatik
+    (örn. günde bir kez) çağrılırdı. Bu staj kapsamında zamanlanmış görev altyapısı
+    (cron/Celery) KURULMUYOR — basit tutmak için yalnızca bir management command'la
+    (bkz. management/commands/check_overdue.py) MANUEL tetikleniyor.
+
+    Döndürür:
+        int: eskalasyon grubu bulunduğu için gerçekten bildirim gönderilen iş sayısı.
+    """
+    escalated_count = 0
+    active_instances = WorkflowInstance.objects.filter(status=WorkflowInstance.Status.ACTIVE)
+
+    for instance in active_instances:
+        if not instance.is_overdue or instance.escalated:
+            continue
+
+        escalation_group = instance.current_step.escalation_group
+        if escalation_group is None:
+            # Eskalasyon grubu atanmamış: hiçbir şey yapma. escalated=True İŞARETLEME —
+            # ileride bu adıma grup atanırsa, halen gecikmiş olan bu iş yine yakalansın.
+            continue
+
+        max_duration_days = instance.current_step.max_duration_days
+        for member in escalation_group.user_set.all():
+            notify(
+                member,
+                f"'{instance.subject}' işi '{instance.current_step.name}' adımında "
+                f"{max_duration_days} günü aştı, kontrol edilmesi gerekiyor.",
+                instance,
+            )
+
+        instance.escalated = True
+        instance.save(update_fields=['escalated'])
+        escalated_count += 1
+
+    return escalated_count
+
+
+def get_step_analytics(definition):
+    """Faz 2 "panom ekranı" için analitik: bir sürecin her adımında şu an kaç iş
+    durduğu ve o adımdan ortalama ne kadar sürede çıkıldığı.
+
+    Girdi:
+        definition (WorkflowDefinition): analiz edilecek süreç.
+
+    Döndürür:
+        list[dict]: adım sırasına (order) göre, her biri şu alanları içerir:
+          - step_name, order
+          - active_count: o adımda şu an duran aktif (status=active) iş sayısı
+          - overdue_count: bunlardan süresi geçmiş (is_overdue) olanların sayısı
+          - completed_count: bu adımdan bugüne kadar kaç kez çıkış yapılmış
+            (WorkflowAction.from_step=step sayısı)
+          - avg_duration_hours: bu adımda ortalama ne kadar (saat) kalınmış;
+            best-effort hesaplanır, hesaplanamazsa None döner.
+    """
+    steps = WorkflowStep.objects.filter(definition=definition).order_by('order')
+    results = []
+
+    for step in steps:
+        active_qs = WorkflowInstance.objects.filter(
+            current_step=step, status=WorkflowInstance.Status.ACTIVE
+        )
+        active_count = active_qs.count()
+
+        # is_overdue property'si current_step üzerinden max_duration_days'e bakar;
+        # step burada zaten elimizde olduğu için instance başına ayrı bir current_step
+        # sorgusuna gerek kalmadan doğrudan hesaplanır (N+1 sorgu önlenir).
+        if step.max_duration_days is not None:
+            overdue_count = sum(
+                1
+                for entered_at in active_qs.values_list('current_step_entered_at', flat=True)
+                if (timezone.now() - entered_at).days >= step.max_duration_days
+            )
+        else:
+            overdue_count = 0
+
+        exit_actions = WorkflowAction.objects.filter(from_step=step)
+        completed_count = exit_actions.count()
+
+        # avg_duration_hours: BEST-EFFORT. Bu adımdan çıkan her action için, aynı
+        # instance'ın kronolojik aksiyon geçmişinde BİR ÖNCEKİ action'ın created_at'i
+        # (yoksa instance.created_at) ile aradaki fark hesaplanır. Beklenmedik bir veri
+        # durumu olursa (örn. eksik ilişki) sessizce None döndürülür — ana özellik
+        # (active/overdue/completed sayıları) buna bağımlı değil.
+        avg_duration_hours = None
+        try:
+            instance_ids = list(exit_actions.values_list('instance_id', flat=True).distinct())
+            if instance_ids:
+                instances_by_id = WorkflowInstance.objects.in_bulk(instance_ids)
+                actions_by_instance = defaultdict(list)
+                for a in WorkflowAction.objects.filter(
+                    instance_id__in=instance_ids
+                ).order_by('instance_id', 'created_at'):
+                    actions_by_instance[a.instance_id].append(a)
+
+                durations = []
+                for instance_id, chronological_actions in actions_by_instance.items():
+                    instance = instances_by_id.get(instance_id)
+                    # Adıma İLK giriş instance.created_at ile başlar; sonraki her
+                    # giriş bir önceki action'ın created_at'i ile başlar.
+                    prev_created_at = instance.created_at if instance else None
+                    for a in chronological_actions:
+                        if a.from_step_id == step.id and prev_created_at is not None:
+                            delta = a.created_at - prev_created_at
+                            # Negatif/sıfır süre gerçek bir ölçüm olamaz (eski/bozuk
+                            # test verisinde created_at'lerin tutarsız olması gibi bir
+                            # veri sorununa işaret eder) — best-effort ortalamayı
+                            # bozmasın diye bu örnek sessizce atlanır.
+                            if delta.total_seconds() > 0:
+                                durations.append(delta.total_seconds() / 3600)
+                        prev_created_at = a.created_at
+
+                if durations:
+                    avg_duration_hours = round(sum(durations) / len(durations), 2)
+        except Exception:
+            avg_duration_hours = None
+
+        results.append(
+            {
+                'step_name': step.name,
+                'order': step.order,
+                'active_count': active_count,
+                'overdue_count': overdue_count,
+                'completed_count': completed_count,
+                'avg_duration_hours': avg_duration_hours,
+            }
+        )
+
+    return results

@@ -3,6 +3,7 @@ import LoginPage from './pages/LoginPage.jsx'
 import InstanceListPage from './pages/InstanceListPage.jsx'
 import InstanceDetailPage from './pages/InstanceDetailPage.jsx'
 import DelegationPage from './pages/DelegationPage.jsx'
+import AnalyticsPage from './pages/AnalyticsPage.jsx'
 import ProtectedRoute from './components/ProtectedRoute.jsx'
 import AppLayout from './components/AppLayout.jsx'
 
@@ -44,6 +45,18 @@ function App() {
           <ProtectedRoute>
             <AppLayout>
               <DelegationPage />
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Panom (Faz 2 analitik) — korumalı, ortak layout içinde. */}
+      <Route
+        path="/analytics"
+        element={
+          <ProtectedRoute>
+            <AppLayout>
+              <AnalyticsPage />
             </AppLayout>
           </ProtectedRoute>
         }

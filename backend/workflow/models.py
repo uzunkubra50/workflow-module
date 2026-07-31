@@ -2,6 +2,7 @@ from django.conf import settings
 from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils import timezone
 
 
 class Unit(models.Model):
@@ -53,6 +54,23 @@ class WorkflowStep(models.Model):
     )
     is_start = models.BooleanField(default=False)
     is_end = models.BooleanField(default=False)
+    # Faz 2 SLA: bu adımda bir işin normalde kaç günde tamamlanması beklendiği.
+    # Boşsa süre takibi yapılmaz (WorkflowInstance.is_overdue hep False döner).
+    max_duration_days = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name='Beklenen Süre (gün)',
+    )
+    # Süre aşılırsa kime haber verileceği. Boşsa eskalasyon yapılmaz
+    # (bkz. services.check_and_escalate — grup yoksa iş atlanır, escalated işaretlenmez).
+    escalation_group = models.ForeignKey(
+        Group,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='escalation_steps',
+        verbose_name='Eskalasyon Grubu',
+    )
 
     def __str__(self):
         return f"{self.order}. {self.name}"
@@ -143,9 +161,35 @@ class WorkflowInstance(models.Model):
     # Ekran 2.1 listede tarih gösterir. Türetilemez: yeni açılan işin henüz hiç
     # WorkflowAction kaydı olmadığı için geçmişten tarih çıkarmak mümkün değil.
     created_at = models.DateTimeField(auto_now_add=True)
+    # Faz 2 SLA: mevcut adıma NE ZAMAN girildiği — is_overdue hesaplaması ve eskalasyon
+    # kontrolü bu alandan süre hesaplar. perform_transition her adım değişiminde bunu
+    # şimdiki zamana sıfırlar, böylece yeni adımda süre baştan sayılır.
+    current_step_entered_at = models.DateTimeField(
+        default=timezone.now,
+        verbose_name='Mevcut Adıma Giriş Zamanı',
+    )
+    # Aynı gecikme için tekrar tekrar eskalasyon bildirimi gitmesin diye. Adım
+    # değiştiğinde (perform_transition) False'a sıfırlanır.
+    escalated = models.BooleanField(default=False, verbose_name='Eskalasyon Yapıldı')
 
     def __str__(self):
         return f"{self.subject} [{self.get_status_display()}]"
+
+    @property
+    def is_overdue(self):
+        """Faz 2 SLA: bu iş, mevcut adımda beklenen süreyi aştı mı?
+
+        Üç koşulun HEPSİ sağlanmalı: status ACTIVE (biten işte gecikme takip
+        edilmez), current_step.max_duration_days dolu (süre takibi tanımlıysa) ve
+        current_step_entered_at üzerinden geçen gün sayısı bu süreyi aşmış/eşitse.
+        """
+        if self.status != self.Status.ACTIVE:
+            return False
+        max_duration_days = self.current_step.max_duration_days
+        if max_duration_days is None:
+            return False
+        elapsed = timezone.now() - self.current_step_entered_at
+        return elapsed.days >= max_duration_days
 
 
 class WorkflowAction(models.Model):

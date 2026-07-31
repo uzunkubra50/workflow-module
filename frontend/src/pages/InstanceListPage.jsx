@@ -28,6 +28,7 @@ import {
   PlusOutlined,
   ProfileOutlined,
   StopOutlined,
+  WarningOutlined,
 } from '@ant-design/icons'
 import api from '../api.js'
 
@@ -85,11 +86,21 @@ const columns = [
     title: 'Durum',
     dataIndex: 'status_display',
     key: 'status',
-    // Renk + ikon status koduna göre; metin status_display'den.
+    // Renk + ikon status koduna göre; metin status_display'den. Faz 2 SLA:
+    // is_overdue true ise yanına ayrı bir "Gecikti" Tag'i eklenir (mevcut Tag'e
+    // dokunulmadan) — satırın kendisini/rowClassName'i değiştirmek yerine bu,
+    // mevcut tabloya en az riskli ekleme.
     render: (text, record) => (
-      <Tag icon={STATUS_ICONS[record.status]} color={STATUS_COLORS[record.status]}>
-        {text}
-      </Tag>
+      <>
+        <Tag icon={STATUS_ICONS[record.status]} color={STATUS_COLORS[record.status]}>
+          {text}
+        </Tag>
+        {record.is_overdue && (
+          <Tag icon={<WarningOutlined />} color="red">
+            Gecikti
+          </Tag>
+        )}
+      </>
     ),
   },
   {
@@ -631,6 +642,14 @@ function InstanceListPage() {
                             >
                               {instance.status_display}
                             </Tag>
+                            {/* Faz 2 SLA: liste tablosundakiyle aynı mantık — ayrı bir
+                                küçük "Gecikti" Tag'i, kartın kendi border'ını değiştirmek
+                                yerine daha az riskli bir ekleme. */}
+                            {instance.is_overdue && (
+                              <Tag icon={<WarningOutlined />} color="red" style={{ fontSize: 11 }}>
+                                Gecikti
+                              </Tag>
+                            )}
                           </Card>
                         ))
                       )}

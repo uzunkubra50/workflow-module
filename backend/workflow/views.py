@@ -219,6 +219,18 @@ class WorkflowDefinitionViewSet(viewsets.ReadOnlyModelViewSet):
         serializer = WorkflowStepSerializer(steps, many=True)
         return Response(serializer.data)
 
+    @action(detail=True, methods=['get'], url_path='analytics')
+    def analytics(self, request, pk=None):
+        """GET /api/definitions/{id}/analytics/ — Faz 2 panom ekranı için: her
+        adımda kaç iş var, adımdan ortalama ne kadar sürede çıkılıyor.
+
+        İş mantığı serviste (services.get_step_analytics); view yalnızca sonucu
+        HTTP yanıtına çevirir.
+        """
+        definition = self.get_object()
+        data = services.get_step_analytics(definition)
+        return Response(data)
+
 
 class DelegationViewSet(viewsets.ModelViewSet):
     """Vekalet yönetimi: kullanıcı kendi verdiği vekaletleri listeler, oluşturur, siler.

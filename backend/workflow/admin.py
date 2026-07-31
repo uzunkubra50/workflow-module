@@ -40,7 +40,17 @@ class WorkflowDefinitionAdmin(admin.ModelAdmin):
 
 
 class WorkflowStepAdmin(admin.ModelAdmin):
-    list_display = ('definition', 'order', 'name', 'responsible_group', 'is_start', 'is_end')
+    # max_duration_days ve escalation_group (Faz 2 SLA) form ekranında zaten otomatik
+    # görünür; max_duration_days ayrıca listede de görünsün diye list_display'e eklendi.
+    list_display = (
+        'definition',
+        'order',
+        'name',
+        'responsible_group',
+        'is_start',
+        'is_end',
+        'max_duration_days',
+    )
     list_filter = ('definition',)
     ordering = ('definition', 'order')
 
