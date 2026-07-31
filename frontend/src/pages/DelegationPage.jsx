@@ -3,6 +3,7 @@ import {
   Alert,
   Button,
   DatePicker,
+  Divider,
   Form,
   Modal,
   Popconfirm,
@@ -27,6 +28,9 @@ function DelegationPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
+  // "Vekili Olduğum Kişiler" bölümü için: bana verilen vekaletler (salt okuma).
+  const [receivedDelegations, setReceivedDelegations] = useState([])
+
   // Modal ile ilgili state'ler.
   const [modalOpen, setModalOpen] = useState(false)
   const [users, setUsers] = useState([]) // vekil seçimi dropdown'ı için kullanıcı listesi
@@ -48,10 +52,21 @@ function DelegationPage() {
     }
   }, [])
 
+  // Bana verilen (vekili olduğum) vekaletleri backend'den çek.
+  const fetchReceivedDelegations = useCallback(async () => {
+    try {
+      const response = await api.get('/api/delegations/received/')
+      setReceivedDelegations(response.data)
+    } catch (err) {
+      console.error('Vekili olunan kayıtlar alınamadı:', err)
+    }
+  }, [])
+
   // Mount'ta verileri yükle.
   useEffect(() => {
     fetchDelegations()
-  }, [fetchDelegations])
+    fetchReceivedDelegations()
+  }, [fetchDelegations, fetchReceivedDelegations])
 
   // "Yeni Vekalet" butonuna basılınca: modalı aç, kullanıcı listesini çek.
   async function openModal() {
@@ -170,6 +185,36 @@ function DelegationPage() {
     },
   ]
 
+  // "Vekili Olduğum Kişiler" tablosu sütunları — salt okuma, silme/düzenleme yok.
+  const receivedColumns = [
+    {
+      title: 'Vekalet Veren',
+      dataIndex: 'delegator',
+      key: 'delegator',
+      render: (value) => <span style={{ fontWeight: 500 }}>{value}</span>,
+    },
+    {
+      title: 'Başlangıç',
+      dataIndex: 'start_date',
+      key: 'start_date',
+    },
+    {
+      title: 'Bitiş',
+      dataIndex: 'end_date',
+      key: 'end_date',
+    },
+    {
+      title: 'Durum',
+      dataIndex: 'is_active',
+      key: 'is_active',
+      render: (isActive) => (
+        <Tag color={isActive ? 'green' : 'default'}>
+          {isActive ? 'Aktif' : 'Pasif'}
+        </Tag>
+      ),
+    },
+  ]
+
   // Yükleniyor: ortalanmış spinner.
   if (loading) {
     return (
@@ -228,6 +273,37 @@ function DelegationPage() {
           locale={{ emptyText: 'Henüz vekalet kaydı yok.' }}
         />
       </div>
+
+      <Divider />
+
+      {/* "Vekili Olduğum Kişiler" bölümü: bana verilen vekaletler, salt okuma. */}
+      <Title level={4}>Vekili Olduğum Kişiler</Title>
+      <Typography.Paragraph type="secondary">
+        Aşağıdaki kişiler size vekalet verdi. Onların sorumlu olduğu adımlarda da
+        işlem yapabilirsiniz.
+      </Typography.Paragraph>
+
+      {receivedDelegations.length === 0 ? (
+        <Typography.Text type="secondary">
+          Şu an kimseye vekil değilsiniz.
+        </Typography.Text>
+      ) : (
+        <div
+          style={{
+            background: '#fff',
+            borderRadius: 12,
+            boxShadow: CARD_SHADOW,
+            overflow: 'hidden',
+          }}
+        >
+          <Table
+            columns={receivedColumns}
+            dataSource={receivedDelegations}
+            rowKey="id"
+            pagination={false}
+          />
+        </div>
+      )}
 
       {/* Yeni Vekalet modalı. */}
       <Modal

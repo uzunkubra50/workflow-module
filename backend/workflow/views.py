@@ -217,6 +217,15 @@ class DelegationViewSet(viewsets.ModelViewSet):
         """Vekalet oluştururken delegator otomatik request.user olur."""
         serializer.save(delegator=self.request.user)
 
+    @action(detail=False, methods=['get'], url_path='received')
+    def received(self, request):
+        """GET /api/delegations/received/ — request.user'ın VEKİLİ OLDUĞU (kendisine
+        verilen) vekaletler. Mevcut list/create/destroy'a dokunmaz, sadece ek bir
+        salt-okuma görünümü sağlar (frontend'de "Vekili Olduğum Kişiler" bölümü)."""
+        delegations = Delegation.objects.filter(delegate=request.user)
+        serializer = self.get_serializer(delegations, many=True)
+        return Response(serializer.data)
+
 
 # --- Kullanıcı listesi (vekalet formundaki vekil seçimi için) ---
 
