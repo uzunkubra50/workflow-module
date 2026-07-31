@@ -231,6 +231,32 @@ class WorkflowDefinitionViewSet(viewsets.ReadOnlyModelViewSet):
         data = services.get_step_analytics(definition)
         return Response(data)
 
+    @action(detail=True, methods=['get'], url_path='transitions')
+    def transitions(self, request, pk=None):
+        """GET /api/definitions/{id}/transitions/ — bu sürecin TÜM geçişleri.
+
+        Süreç şeması görünümü (4.1) için: WorkflowTransitionSerializer to_step'i ad
+        olarak verip from_step'i hiç içermediği için (2.2 detay ekranındaki dinamik
+        aksiyon butonları amacıyla tasarlandı) burada işe yaramıyor; şema çiziminde
+        hem from_step hem to_step'in id'si gerektiğinden basit, elle bir liste
+        döndürülüyor. select_related: N+1 sorgu önlenir (from_step/to_step erişimi).
+        """
+        definition = self.get_object()
+        qs = WorkflowTransition.objects.filter(definition=definition).select_related(
+            'from_step', 'to_step'
+        )
+        data = [
+            {
+                'id': t.id,
+                'action_name': t.action_name,
+                'action_type': t.action_type,
+                'from_step_id': t.from_step_id,
+                'to_step_id': t.to_step_id,
+            }
+            for t in qs
+        ]
+        return Response(data)
+
 
 class DelegationViewSet(viewsets.ModelViewSet):
     """Vekalet yönetimi: kullanıcı kendi verdiği vekaletleri listeler, oluşturur, siler.

@@ -17,6 +17,7 @@ import {
   BellOutlined,
   DeploymentUnitOutlined,
   LogoutOutlined,
+  PartitionOutlined,
   SwapOutlined,
   UnorderedListOutlined,
   UserOutlined,
@@ -45,6 +46,11 @@ const menuItems = [
     icon: <BarChartOutlined />,
     label: <Link to="/analytics">Panom</Link>,
   },
+  {
+    key: '/diagram',
+    icon: <PartitionOutlined />,
+    label: <Link to="/diagram">Süreç Şeması</Link>,
+  },
 ]
 
 // URL yoluna göre breadcrumb öğelerini üretir.
@@ -57,6 +63,9 @@ function getBreadcrumbItems(pathname) {
   }
   if (pathname.startsWith('/analytics')) {
     return [{ title: 'Panom' }]
+  }
+  if (pathname.startsWith('/diagram')) {
+    return [{ title: 'Süreç Şeması' }]
   }
   return [{ title: 'İş Akışlarım' }]
 }
@@ -262,7 +271,9 @@ function AppLayout({ children }) {
               ? '/delegations'
               : location.pathname.startsWith('/analytics')
                 ? '/analytics'
-                : '/',
+                : location.pathname.startsWith('/diagram')
+                  ? '/diagram'
+                  : '/',
           ]}
           items={menuItems}
           style={{ background: NAVY }}
