@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Alert,
+  Badge,
   Button,
   Card,
   Col,
@@ -23,6 +24,7 @@ import {
   ApartmentOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
+  DownloadOutlined,
   PlusOutlined,
   ProfileOutlined,
   StopOutlined,
@@ -30,6 +32,7 @@ import {
 import api from '../api.js'
 
 const { Title } = Typography
+const { Search } = Input
 
 // status koduna göre Tag rengi (doküman 2.1: Aktif mavi, Tamamlandı yeşil;
 // Reddedildi, Faz 2 Müdür Onayı düzeltmesiyle eklendi — turuncu-kırmızı).
@@ -116,7 +119,19 @@ function InstanceListPage() {
   // Client-side durum filtresi (yeni API çağrısı yapmaz; sadece görüntülemeyi süzer).
   const [statusFilter, setStatusFilter] = useState('all')
 
-  // 3.1 Yeni iş modalı ile ilgili state'ler.
+  // Client-side arama metni (konu/belge numarası). Az veri olduğu için debounce gerekmez.
+  const [searchText, setSearchText] = useState('')
+
+  // Liste <-> Kanban görünüm anahtarı.
+  const [viewMode, setViewMode] = useState('list')
+
+  // Kanban görünümü state'leri: seçilen süreç + o sürecin TÜM adımları (sırayla).
+  const [selectedDefinition, setSelectedDefinition] = useState(null)
+  const [definitionSteps, setDefinitionSteps] = useState([])
+  const [stepsLoading, setStepsLoading] = useState(false)
+
+  // 3.1 Yeni iş modalı ile ilgili state'ler. definitions Kanban'daki süreç
+  // dropdown'ı için de kullanılır (tek çekim, iki yerde paylaşılır).
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [definitions, setDefinitions] = useState([]) // süreç dropdown'ı
   const [creating, setCreating] = useState(false) // form gönderiliyor mu
@@ -168,24 +183,83 @@ function InstanceListPage() {
   }, [instances])
 
   // Tabloda gösterilecek (filtrelenmiş) veri. Orijinal instances bozulmaz.
+  // Durum filtresi + arama metni birlikte (AND) uygulanır.
   const filteredInstances = useMemo(() => {
-    if (statusFilter === 'all') return instances
-    return instances.filter((i) => i.status === statusFilter)
-  }, [instances, statusFilter])
+    let result =
+      statusFilter === 'all' ? instances : instances.filter((i) => i.status === statusFilter)
+
+    const query = searchText.trim().toLowerCase()
+    if (query) {
+      result = result.filter(
+        (i) =>
+          i.subject?.toLowerCase().includes(query) ||
+          i.document_ref?.toLowerCase().includes(query),
+      )
+    }
+
+    return result
+  }, [instances, statusFilter, searchText])
+
+  // Süreç listesini (henüz çekilmediyse) çeker. Hem "Yeni İş Başlat" modalı hem de
+  // Kanban görünümündeki süreç dropdown'ı aynı definitions state'ini paylaşır.
+  async function ensureDefinitionsLoaded() {
+    if (definitions.length > 0) return
+    try {
+      const response = await api.get('/api/definitions/')
+      setDefinitions(response.data)
+    } catch (err) {
+      console.error('Süreçler alınamadı:', err)
+      message.error('Süreçler yüklenemedi.')
+    }
+  }
 
   // "Yeni İş Başlat" tıklanınca: modalı aç ve süreçleri (henüz çekilmediyse) çek.
   async function openCreateModal() {
     setCreateModalOpen(true)
-    if (definitions.length === 0) {
-      try {
-        const response = await api.get('/api/definitions/')
-        setDefinitions(response.data)
-      } catch (err) {
-        console.error('Süreçler alınamadı:', err)
-        message.error('Süreçler yüklenemedi.')
-      }
+    await ensureDefinitionsLoaded()
+  }
+
+  // Kanban görünümüne geçilince süreç dropdown'ı için tanımları çek (henüz yoksa).
+  useEffect(() => {
+    if (viewMode === 'kanban') {
+      ensureDefinitionsLoaded()
+    }
+    // ensureDefinitionsLoaded her render'da yeniden oluşuyor ama içeride kendi
+    // guard'ı (definitions.length > 0) var; sadece viewMode değişince tetiklenmesi yeterli.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode])
+
+  // Kanban'da süreç seçilince: adımlarını çek, sütunları oluştur.
+  async function handleSelectDefinition(definitionId) {
+    setSelectedDefinition(definitionId ?? null)
+    setDefinitionSteps([])
+    if (!definitionId) return
+
+    setStepsLoading(true)
+    try {
+      const response = await api.get(`/api/definitions/${definitionId}/steps/`)
+      setDefinitionSteps(response.data)
+    } catch (err) {
+      console.error('Süreç adımları alınamadı:', err)
+      message.error('Süreç adımları yüklenemedi.')
+    } finally {
+      setStepsLoading(false)
     }
   }
+
+  // Seçilen sürecin adı (instances'taki 'definition' alanı isim olarak geliyor,
+  // eşleştirme id üzerinden değil isim üzerinden yapılmak zorunda).
+  const selectedDefinitionName = useMemo(
+    () => definitions.find((d) => d.id === selectedDefinition)?.name,
+    [definitions, selectedDefinition],
+  )
+
+  // Kanban'da gösterilecek işler: TÜM instances içinden yalnızca seçilen sürece ait
+  // olanlar (durum filtresi/arama Kanban'ı etkilemez — Liste görünümünden bağımsız).
+  const kanbanInstances = useMemo(() => {
+    if (!selectedDefinitionName) return []
+    return instances.filter((i) => i.definition === selectedDefinitionName)
+  }, [instances, selectedDefinitionName])
 
   // Modalı kapat + formu temizle (Vazgeç ya da başarılı gönderim sonrası).
   function closeCreateModal() {
@@ -233,6 +307,52 @@ function InstanceListPage() {
     } finally {
       setCreating(false)
     }
+  }
+
+  // CSV alanını kaçışlar: virgül/tırnak/satır sonu içeriyorsa çift tırnak içine al,
+  // içindeki çift tırnağı ikiye katla (standart CSV escaping).
+  function escapeCsvField(value) {
+    const str = String(value ?? '')
+    if (/[",\n]/.test(str)) {
+      return `"${str.replace(/"/g, '""')}"`
+    }
+    return str
+  }
+
+  // O an görüntülenen (filtrelenmiş) işleri CSV'ye çevirip indirir.
+  function handleExportCsv() {
+    if (filteredInstances.length === 0) {
+      message.info('Dışa aktarılacak iş yok.')
+      return
+    }
+
+    const headers = ['Konu', 'Süreç', 'Mevcut Adım', 'Belge', 'Durum', 'Oluşturulma Tarihi']
+    const rows = filteredInstances.map((i) => [
+      i.subject,
+      i.definition,
+      i.current_step,
+      i.document_ref,
+      i.status_display,
+      i.created_at ? new Date(i.created_at).toLocaleString('tr-TR') : '',
+    ])
+
+    const csvContent = [headers, ...rows]
+      .map((row) => row.map(escapeCsvField).join(','))
+      .join('\r\n')
+
+    // Başına UTF-8 BOM: Excel'de Türkçe karakterlerin (ş, ğ, ı ...) bozulmasını önler.
+    const BOM = '\uFEFF'
+    const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+
+    const link = document.createElement('a')
+    const today = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
+    link.href = url
+    link.download = `is-akislarim-${today}.csv`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
   }
 
   // Yükleniyor: ortalanmış spinner.
@@ -295,84 +415,233 @@ function InstanceListPage() {
         <Title level={3} style={{ margin: 0 }}>
           İş Akışlarım
         </Title>
-        {/* Yeni iş başlatma butonu yalnızca yetkili kullanıcılara gösterilir. */}
-        {canCreate && (
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
-            Yeni İş Başlat
+        <div style={{ display: 'flex', gap: 12 }}>
+          {/* CSV dışa aktarma: o an filtrelenmiş (görüntülenen) işleri indirir. */}
+          <Button icon={<DownloadOutlined />} onClick={handleExportCsv}>
+            Dışa Aktar
           </Button>
-        )}
+          {/* Yeni iş başlatma butonu yalnızca yetkili kullanıcılara gösterilir. */}
+          {canCreate && (
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
+              Yeni İş Başlat
+            </Button>
+          )}
+        </div>
       </div>
 
-      {/* a) İstatistik kartları (responsive). Yatay+dikey gutter: mobilde alt alta
-          dizilince kartlar arasında da bosluk kalsin. */}
-      <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-        {statCards.map((s) => (
-          <Col xs={24} sm={12} md={6} key={s.title}>
-            <Card size="small" style={{ boxShadow: CARD_SHADOW }}>
-              {/* Solda renkli ikon dairesi, sağda Statistic (başlık üstte, değer altta —
-                  Statistic'in kendi varsayılan dikey düzeni zaten bunu sağlıyor). */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                <div
-                  style={{
-                    width: 48,
-                    height: 48,
-                    borderRadius: '50%',
-                    background: s.bgColor,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                  }}
-                >
-                  <span style={{ color: s.color, fontSize: 22 }}>{s.icon}</span>
-                </div>
-                <Statistic
-                  title={s.title}
-                  value={s.value}
-                  valueStyle={{ color: s.color, fontWeight: 600 }}
-                />
-              </div>
-            </Card>
-          </Col>
-        ))}
-      </Row>
-
-      {/* b) Durum filtresi (client-side). Bolum araligi 24 - diger bloklarla tutarli. */}
+      {/* Liste <-> Kanban görünüm anahtarı. Başlık bandının altında, tüm filtre/tablo
+          bloklarının üstünde — iki görünüm birbirinden bağımsız çalışır. */}
       <div style={{ marginBottom: 24 }}>
         <Segmented
-          value={statusFilter}
-          onChange={setStatusFilter}
+          value={viewMode}
+          onChange={setViewMode}
           options={[
-            { label: 'Tümü', value: 'all' },
-            { label: 'Aktif', value: 'active' },
-            { label: 'Tamamlanan', value: 'completed' },
-            { label: 'Reddedilen', value: 'rejected' },
+            { label: 'Liste', value: 'list' },
+            { label: 'Kanban', value: 'kanban' },
           ]}
         />
       </div>
 
-      {/* c) Tablo — beyaz kart hissi (gölge + yuvarlak köşe). */}
-      <div
-        style={{
-          background: '#fff',
-          borderRadius: 12,
-          boxShadow: CARD_SHADOW,
-          overflow: 'hidden',
-        }}
-      >
-        <Table
-          columns={columns}
-          dataSource={filteredInstances}
-          rowKey="id"
-          // Filtre sonucu boşsa özel boş durum.
-          locale={{ emptyText: <Empty description="Bu filtrede iş yok" /> }}
-          // Satıra tıklayınca detaya git + tıklanabilir imleç.
-          onRow={(record) => ({
-            onClick: () => navigate(`/instances/${record.id}`),
-            style: { cursor: 'pointer' },
-          })}
-        />
-      </div>
+      {viewMode === 'list' && (
+        <>
+          {/* a) İstatistik kartları (responsive). Yatay+dikey gutter: mobilde alt alta
+              dizilince kartlar arasında da bosluk kalsin. */}
+          <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+            {statCards.map((s) => (
+              <Col xs={24} sm={12} md={6} key={s.title}>
+                <Card size="small" style={{ boxShadow: CARD_SHADOW }}>
+                  {/* Solda renkli ikon dairesi, sağda Statistic (başlık üstte, değer altta —
+                      Statistic'in kendi varsayılan dikey düzeni zaten bunu sağlıyor). */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                    <div
+                      style={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: '50%',
+                        background: s.bgColor,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <span style={{ color: s.color, fontSize: 22 }}>{s.icon}</span>
+                    </div>
+                    <Statistic
+                      title={s.title}
+                      value={s.value}
+                      valueStyle={{ color: s.color, fontWeight: 600 }}
+                    />
+                  </div>
+                </Card>
+              </Col>
+            ))}
+          </Row>
+
+          {/* b) Durum filtresi (client-side) + arama kutusu. İkisi de filteredInstances'ı
+              birlikte (AND) besler. Bolum araligi 24 - diger bloklarla tutarli. */}
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 12,
+              marginBottom: 24,
+            }}
+          >
+            <Segmented
+              value={statusFilter}
+              onChange={setStatusFilter}
+              options={[
+                { label: 'Tümü', value: 'all' },
+                { label: 'Aktif', value: 'active' },
+                { label: 'Tamamlanan', value: 'completed' },
+                { label: 'Reddedilen', value: 'rejected' },
+              ]}
+            />
+            <Search
+              placeholder="Konu veya belge numarasına göre ara..."
+              allowClear
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              style={{ maxWidth: 320 }}
+            />
+          </div>
+
+          {/* c) Tablo — beyaz kart hissi (gölge + yuvarlak köşe). */}
+          <div
+            style={{
+              background: '#fff',
+              borderRadius: 12,
+              boxShadow: CARD_SHADOW,
+              overflow: 'hidden',
+            }}
+          >
+            <Table
+              columns={columns}
+              dataSource={filteredInstances}
+              rowKey="id"
+              // Filtre sonucu boşsa özel boş durum.
+              locale={{ emptyText: <Empty description="Bu filtrede iş yok" /> }}
+              // Satıra tıklayınca detaya git + tıklanabilir imleç.
+              onRow={(record) => ({
+                onClick: () => navigate(`/instances/${record.id}`),
+                style: { cursor: 'pointer' },
+              })}
+            />
+          </div>
+        </>
+      )}
+
+      {viewMode === 'kanban' && (
+        <>
+          {/* Süreç seçimi: hangi sürecin adımları sütun olacak. */}
+          <div style={{ marginBottom: 24, maxWidth: 360 }}>
+            <Select
+              placeholder="Süreç seçin"
+              style={{ width: '100%' }}
+              allowClear
+              value={selectedDefinition}
+              onChange={handleSelectDefinition}
+              options={definitions.map((d) => ({ value: d.id, label: d.name }))}
+            />
+          </div>
+
+          {!selectedDefinition ? (
+            <Empty description="Görüntülemek için bir süreç seçin" />
+          ) : stepsLoading ? (
+            <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
+              <Spin size="large" />
+            </div>
+          ) : (
+            // Sütunlar yatayda yan yana, taşarsa yatay scroll. Her sütun sabit genişlik.
+            <div style={{ display: 'flex', gap: 16, overflowX: 'auto', paddingBottom: 8 }}>
+              {definitionSteps.map((step) => {
+                const stepInstances = kanbanInstances.filter(
+                  (i) => i.current_step === step.name,
+                )
+                return (
+                  <div
+                    key={step.id}
+                    style={{
+                      flex: '0 0 280px',
+                      width: 280,
+                      background: '#fff',
+                      borderRadius: 12,
+                      boxShadow: CARD_SHADOW,
+                      display: 'flex',
+                      flexDirection: 'column',
+                    }}
+                  >
+                    {/* Sütun başlığı: adım adı + iş sayısı. */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '12px 16px',
+                        borderBottom: '1px solid #f0f0f0',
+                      }}
+                    >
+                      <span style={{ fontWeight: 600 }}>{step.name}</span>
+                      <Badge count={stepInstances.length} showZero color="#1e3a5f" />
+                    </div>
+
+                    {/* Kart listesi: dikey scroll, sabit maksimum yükseklik. */}
+                    <div style={{ padding: 12, overflowY: 'auto', maxHeight: 500 }}>
+                      {stepInstances.length === 0 ? (
+                        <div
+                          style={{
+                            textAlign: 'center',
+                            color: 'rgba(0, 0, 0, 0.35)',
+                            padding: '24px 0',
+                            fontSize: 13,
+                          }}
+                        >
+                          Boş
+                        </div>
+                      ) : (
+                        stepInstances.map((instance) => (
+                          <Card
+                            key={instance.id}
+                            size="small"
+                            hoverable
+                            onClick={() => navigate(`/instances/${instance.id}`)}
+                            style={{ marginBottom: 10, cursor: 'pointer' }}
+                          >
+                            <div style={{ fontWeight: 500, marginBottom: 4 }}>
+                              {instance.subject}
+                            </div>
+                            {instance.document_ref && (
+                              <div
+                                style={{
+                                  fontSize: 12,
+                                  color: 'rgba(0, 0, 0, 0.45)',
+                                  marginBottom: 6,
+                                }}
+                              >
+                                {instance.document_ref}
+                              </div>
+                            )}
+                            <Tag
+                              icon={STATUS_ICONS[instance.status]}
+                              color={STATUS_COLORS[instance.status]}
+                              style={{ fontSize: 11 }}
+                            >
+                              {instance.status_display}
+                            </Tag>
+                          </Card>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </>
+      )}
 
       {/* 3.1 Yeni İş Başlatma modalı */}
       <Modal
