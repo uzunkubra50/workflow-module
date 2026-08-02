@@ -5,6 +5,9 @@ import InstanceDetailPage from './pages/InstanceDetailPage.jsx'
 import DelegationPage from './pages/DelegationPage.jsx'
 import AnalyticsPage from './pages/AnalyticsPage.jsx'
 import ProcessDiagramPage from './pages/ProcessDiagramPage.jsx'
+import UserManagementPage from './pages/UserManagementPage.jsx'
+import DefinitionPermissionsPage from './pages/DefinitionPermissionsPage.jsx'
+import ProcessDesignerPage from './pages/ProcessDesignerPage.jsx'
 import ProtectedRoute from './components/ProtectedRoute.jsx'
 import AppLayout from './components/AppLayout.jsx'
 
@@ -70,6 +73,48 @@ function App() {
           <ProtectedRoute>
             <AppLayout>
               <ProcessDiagramPage />
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Rol/Yetki Yönetimi — korumalı, ortak layout içinde. Erişim kısıtı (staff/superuser)
+          menüde değil, sayfanın kendisinde: backend 403 dönerse UserManagementPage uyarı gösterir. */}
+      <Route
+        path="/users"
+        element={
+          <ProtectedRoute>
+            <AppLayout>
+              <UserManagementPage />
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Süreç Başlatma Yetkileri (grup x süreç matrisi) — korumalı, ortak layout içinde.
+          Erişim kısıtı (staff/superuser) sayfanın kendisinde: backend 403 dönerse
+          DefinitionPermissionsPage uyarı gösterir (UserManagementPage'deki aynı desen). */}
+      <Route
+        path="/definition-permissions"
+        element={
+          <ProtectedRoute>
+            <AppLayout>
+              <DefinitionPermissionsPage />
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Süreç Tasarla (1.2, react-flow tabanlı editör) — korumalı, ortak layout içinde.
+          Erişim kısıtı (staff/superuser) sayfanın kendisinde: backend admin uçları 403
+          dönerse ProcessDesignerPage uyarı gösterir (aynı desen). ProcessDiagramPage
+          (salt okuma, /diagram) TAMAMEN AYRI — bu route ona dokunmaz. */}
+      <Route
+        path="/process-designer"
+        element={
+          <ProtectedRoute>
+            <AppLayout>
+              <ProcessDesignerPage />
             </AppLayout>
           </ProtectedRoute>
         }

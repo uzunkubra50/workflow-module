@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from .models import (
     Delegation,
+    GroupDefinitionPermission,
     Notification,
     Unit,
     WorkflowAction,
@@ -102,6 +103,14 @@ class NotificationAdmin(admin.ModelAdmin):
     list_filter = ('is_read',)
 
 
+# --- Grup bazlı süreç yetkisi ---
+
+
+class GroupDefinitionPermissionAdmin(admin.ModelAdmin):
+    list_display = ('group', 'definition')
+    list_filter = ('group', 'definition')
+
+
 # --- Kayıtlar ---
 
 admin.site.register(Unit, UnitAdmin)
@@ -112,4 +121,5 @@ admin.site.register(WorkflowInstance, WorkflowInstanceAdmin)
 admin.site.register(WorkflowAction, WorkflowActionAdmin)
 admin.site.register(Delegation, DelegationAdmin)
 admin.site.register(Notification, NotificationAdmin)
+admin.site.register(GroupDefinitionPermission, GroupDefinitionPermissionAdmin)
 

@@ -1,6 +1,8 @@
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
+from rest_framework.validators import UniqueValidator
 
 from .models import (
     Delegation,
@@ -11,7 +13,7 @@ from .models import (
     WorkflowStep,
     WorkflowTransition,
 )
-from .services import can_user_perform, get_available_transitions
+from .services import can_user_perform, get_available_transitions, user_can_create_instance
 
 User = get_user_model()
 
@@ -19,9 +21,14 @@ User = get_user_model()
 # 2.3 İşlem Geçmişi ekranı — audit trail satırları. Salt okuma (geçmiş değiştirilmez).
 class WorkflowActionSerializer(serializers.ModelSerializer):
     # İlişkili nesnelerin id'si yerine okunabilir ad/kullanıcı adı göster.
-    # from_step / to_step nullable olabilir (SET_NULL); DRF null zincirde None döndürür.
+    # from_step nullable olabilir (SET_NULL) ama pratikte hep dolu gelir.
     from_step = serializers.CharField(source='from_step.name', read_only=True)
-    to_step = serializers.CharField(source='to_step.name', read_only=True)
+    # to_step ise İŞ İPTALİNDE (services.cancel_instance) BİLİNÇLİ olarak None —
+    # CharField(source='to_step.name') kullanılsaydı, None FK üzerinden dotted source
+    # çözümlemesi DRF'de SkipField fırlatır ve alan yanıttan TAMAMEN düşer (null DEĞİL,
+    # anahtar hiç yok) — bu yüzden burada SerializerMethodField ile alanın her zaman
+    # var olması (değeri None ya da adı) garanti ediliyor.
+    to_step = serializers.SerializerMethodField()
     performed_by = serializers.CharField(source='performed_by.username', read_only=True)
 
     class Meta:
@@ -38,6 +45,9 @@ class WorkflowActionSerializer(serializers.ModelSerializer):
         ]
         # Tüm alanlar salt okuma; bu serializer yalnızca geçmişi göstermek için.
         read_only_fields = ['id', 'note', 'created_at']
+
+    def get_to_step(self, obj):
+        return obj.to_step.name if obj.to_step else None
 
 
 # 2.2 Detay ekranındaki DİNAMİK aksiyon butonları — her geçiş bir butona dönüşür.
@@ -100,6 +110,10 @@ class WorkflowInstanceDetailSerializer(WorkflowInstanceListSerializer):
     can_perform_action = serializers.SerializerMethodField()
     # Mevcut adımın sorumlu grubu (varsa adı, yoksa None) — bilgi amaçlı gösterim.
     responsible_group = serializers.SerializerMethodField()
+    # İş iptali (Tarık Bey'in ② numaralı sorusu): bu isteği yapan kullanıcı işi iptal
+    # edebilir mi? can_perform_action'dan BAĞIMSIZ bir kural — adım bazlı yetkiyle
+    # değil, "işi başlatan kişi ya da yönetici" ile ilgili (bkz. services.cancel_instance).
+    can_cancel = serializers.SerializerMethodField()
 
     class Meta(WorkflowInstanceListSerializer.Meta):
         fields = WorkflowInstanceListSerializer.Meta.fields + [
@@ -110,6 +124,7 @@ class WorkflowInstanceDetailSerializer(WorkflowInstanceListSerializer):
             'definition_steps',
             'can_perform_action',
             'responsible_group',
+            'can_cancel',
         ]
 
     @extend_schema_field(WorkflowTransitionSerializer(many=True))
@@ -142,6 +157,16 @@ class WorkflowInstanceDetailSerializer(WorkflowInstanceListSerializer):
     def get_responsible_group(self, obj):
         group = obj.current_step.responsible_group
         return group.name if group else None
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_can_cancel(self, obj):
+        # request context yoksa (bkz. get_can_perform_action) savunmacı: False.
+        request = self.context.get('request')
+        if request is None:
+            return False
+        user = request.user
+        is_owner_or_admin = user.is_superuser or obj.created_by == user
+        return is_owner_or_admin and obj.status == WorkflowInstance.Status.ACTIVE
 
 
 # 3.1 Sürece bağlama / yeni iş başlatma — YAZMA amaçlı (create body'sini kabul eder).
@@ -201,6 +226,41 @@ class WorkflowStepSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'order']
 
 
+# --- Süreç Tasarlama ekranı için YAZMA amaçlı serializer'lar (tam CRUD, staff-only) ---
+# Yukarıdaki WorkflowDefinitionSerializer/WorkflowStepSerializer SALT OKUMA amaçlı
+# (unit/current_step gibi alanları okunabilir isme çeviriyor); bunlar ise ham FK id'leri
+# kabul eder (create/update body'si için) — DRF'nin ModelSerializer varsayılanı zaten
+# FK alanlarını PrimaryKeyRelatedField'a çevirir, ayrıca bir şey yazmaya gerek yok.
+
+
+class WorkflowDefinitionWriteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WorkflowDefinition
+        fields = ['id', 'name', 'code', 'unit', 'is_active']
+
+
+class WorkflowStepWriteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WorkflowStep
+        fields = [
+            'id',
+            'definition',
+            'name',
+            'order',
+            'responsible_group',
+            'is_start',
+            'is_end',
+            'max_duration_days',
+            'escalation_group',
+        ]
+
+
+class WorkflowTransitionWriteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WorkflowTransition
+        fields = ['id', 'definition', 'from_step', 'to_step', 'action_name', 'action_type']
+
+
 # --- Vekalet serializer'ı (CRUD) ---
 
 
@@ -257,4 +317,60 @@ class NotificationSerializer(serializers.ModelSerializer):
         model = Notification
         fields = ['id', 'message', 'is_read', 'created_at', 'instance']
         read_only_fields = fields
+
+
+# --- Rol/Yetki Yönetimi ekranı için kullanıcı/grup serializer'ları ---
+
+
+# GET /api/groups/ dropdown'ı, kullanıcının gruplarını göstermek ve POST /api/groups/
+# ile yeni grup oluşturmak için ortak, sade serializer.
+class GroupSerializer(serializers.ModelSerializer):
+    # 'name' alanı model üzerinde unique=True — DRF varsayılan UniqueValidator mesajı
+    # İngilizce ("group with this name already exists"), uygulamanın geri kalanıyla
+    # tutarlı olsun diye burada Türkçe mesajla override ediyoruz.
+    name = serializers.CharField(
+        max_length=150,
+        validators=[
+            UniqueValidator(
+                queryset=Group.objects.all(),
+                message='Bu isimde bir grup zaten var.',
+            )
+        ],
+    )
+
+    class Meta:
+        model = Group
+        fields = ['id', 'name']
+
+
+# GET /api/users/ — NORMAL kullanıcı için (staff/superuser değilse). Vekil seçim
+# dropdown'ı için yeterli, mevcut/eski davranışla birebir aynı: sadece id + username.
+class UserBasicSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'username']
+
+
+# GET /api/users/ — STAFF/SUPERUSER için genişletilmiş görünüm (Rol/Yetki Yönetimi
+# ekranı): id/username'e ek olarak gruplar, iş başlatma izni, superuser durumu.
+# PATCH /api/users/{id}/groups/ ve /permissions/ de güncel hali bu serializer'la döner.
+class UserWithGroupsSerializer(serializers.ModelSerializer):
+    groups = GroupSerializer(many=True, read_only=True)
+    can_create_instance = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = [
+            'id',
+            'username',
+            'groups',
+            'can_create_instance',
+            'is_superuser',
+            # Hesap aktif/pasif durumu — Rol/Yetki Yönetimi ekranında toggle edilebilir
+            # (bkz. views.UserViewSet.active).
+            'is_active',
+        ]
+
+    def get_can_create_instance(self, obj):
+        return user_can_create_instance(obj)
 

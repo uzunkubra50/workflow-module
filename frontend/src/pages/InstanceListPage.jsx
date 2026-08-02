@@ -24,6 +24,7 @@ import {
   ApartmentOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
+  CloseCircleOutlined,
   DownloadOutlined,
   PlusOutlined,
   ProfileOutlined,
@@ -37,10 +38,13 @@ const { Search } = Input
 
 // status koduna göre Tag rengi (doküman 2.1: Aktif mavi, Tamamlandı yeşil;
 // Reddedildi, Faz 2 Müdür Onayı düzeltmesiyle eklendi — turuncu-kırmızı).
+// cancelled: iş iptali özelliğiyle eklendi — InstanceDetailPage'deki STATUS_COLORS
+// ile tutarlı, nötr gri (diğer üç renkten ayrışan "süreç dışına çıkarıldı" tonu).
 const STATUS_COLORS = {
   active: 'blue',
   completed: 'green',
   rejected: 'volcano',
+  cancelled: '#8c8c8c',
 }
 
 // status koduna göre Tag ikonu (renklerle aynı anlam).
@@ -48,6 +52,7 @@ const STATUS_ICONS = {
   active: <ClockCircleOutlined />,
   completed: <CheckCircleOutlined />,
   rejected: <StopOutlined />,
+  cancelled: <StopOutlined />,
 }
 
 // Kartlara/tabloya hafif derinlik hissi veren ortak gölge.
@@ -142,9 +147,14 @@ function InstanceListPage() {
   const [stepsLoading, setStepsLoading] = useState(false)
 
   // 3.1 Yeni iş modalı ile ilgili state'ler. definitions Kanban'daki süreç
-  // dropdown'ı için de kullanılır (tek çekim, iki yerde paylaşılır).
+  // dropdown'ı için de kullanılır (tek çekim, iki yerde paylaşılır) — Kanban salt
+  // görüntüleme amaçlı olduğu için TÜM aktif süreçleri listelemeye devam eder.
   const [createModalOpen, setCreateModalOpen] = useState(false)
-  const [definitions, setDefinitions] = useState([]) // süreç dropdown'ı
+  const [definitions, setDefinitions] = useState([]) // Kanban süreç dropdown'ı
+  // Yeni İş Başlat modalının süreç dropdown'ı ise AYRI bir state: yalnızca
+  // kullanıcının başlatmaya yetkili olduğu süreçler (grup bazlı süreç yetkisi,
+  // Faz 2). Kanban'dan farklı veri kaynağı olduğu için definitions ile paylaşılmaz.
+  const [allowedDefinitions, setAllowedDefinitions] = useState([])
   const [creating, setCreating] = useState(false) // form gönderiliyor mu
 
   // Kullanıcının yeni iş başlatma yetkisi olup olmadığı (can-create endpoint'inden gelir).
@@ -190,6 +200,7 @@ function InstanceListPage() {
       active: instances.filter((i) => i.status === 'active').length,
       completed: instances.filter((i) => i.status === 'completed').length,
       rejected: instances.filter((i) => i.status === 'rejected').length,
+      cancelled: instances.filter((i) => i.status === 'cancelled').length,
     }
   }, [instances])
 
@@ -211,8 +222,9 @@ function InstanceListPage() {
     return result
   }, [instances, statusFilter, searchText])
 
-  // Süreç listesini (henüz çekilmediyse) çeker. Hem "Yeni İş Başlat" modalı hem de
-  // Kanban görünümündeki süreç dropdown'ı aynı definitions state'ini paylaşır.
+  // Süreç listesini (henüz çekilmediyse) çeker — Kanban görünümündeki süreç
+  // dropdown'ı için (salt görüntüleme, TÜM aktif süreçler). "Yeni İş Başlat" modalı
+  // artık ayrı bir uçtan (allowedDefinitions) besleniyor, bkz. aşağısı.
   async function ensureDefinitionsLoaded() {
     if (definitions.length > 0) return
     try {
@@ -224,10 +236,24 @@ function InstanceListPage() {
     }
   }
 
-  // "Yeni İş Başlat" tıklanınca: modalı aç ve süreçleri (henüz çekilmediyse) çek.
+  // Yeni İş Başlat modalı için izinli süreçleri (henüz çekilmediyse) çeker.
+  // /api/definitions/ değil /api/definitions/allowed/ kullanılır — kullanıcı yalnızca
+  // başlatmaya yetkili olduğu süreçleri görsün (grup bazlı süreç yetkisi, Faz 2).
+  async function ensureAllowedDefinitionsLoaded() {
+    if (allowedDefinitions.length > 0) return
+    try {
+      const response = await api.get('/api/definitions/allowed/')
+      setAllowedDefinitions(response.data)
+    } catch (err) {
+      console.error('İzinli süreçler alınamadı:', err)
+      message.error('Süreçler yüklenemedi.')
+    }
+  }
+
+  // "Yeni İş Başlat" tıklanınca: modalı aç ve izinli süreçleri (henüz çekilmediyse) çek.
   async function openCreateModal() {
     setCreateModalOpen(true)
-    await ensureDefinitionsLoaded()
+    await ensureAllowedDefinitionsLoaded()
   }
 
   // Kanban görünümüne geçilince süreç dropdown'ı için tanımları çek (henüz yoksa).
@@ -410,6 +436,14 @@ function InstanceListPage() {
       color: '#d4380d',
       bgColor: '#fff2e8',
     },
+    {
+      // İş iptali özelliğiyle eklenen beşinci kart — diğer dördüne dokunulmadı.
+      title: 'İptal Edilen',
+      value: stats.cancelled,
+      icon: <CloseCircleOutlined />,
+      color: '#8c8c8c',
+      bgColor: '#f5f5f5',
+    },
   ]
 
   return (
@@ -459,7 +493,7 @@ function InstanceListPage() {
               dizilince kartlar arasında da bosluk kalsin. */}
           <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
             {statCards.map((s) => (
-              <Col xs={24} sm={12} md={6} key={s.title}>
+              <Col xs={24} sm={12} md={{ flex: '1 1 0' }} key={s.title}>
                 <Card size="small" style={{ boxShadow: CARD_SHADOW }}>
                   {/* Solda renkli ikon dairesi, sağda Statistic (başlık üstte, değer altta —
                       Statistic'in kendi varsayılan dikey düzeni zaten bunu sağlıyor). */}
@@ -509,6 +543,7 @@ function InstanceListPage() {
                 { label: 'Aktif', value: 'active' },
                 { label: 'Tamamlanan', value: 'completed' },
                 { label: 'Reddedilen', value: 'rejected' },
+                { label: 'İptal Edilen', value: 'cancelled' },
               ]}
             />
             <Search
@@ -678,10 +713,14 @@ function InstanceListPage() {
             name="definition"
             rules={[{ required: true, message: 'Süreç seçin.' }]}
           >
-            {/* name gösterilir, id gönderilir. */}
+            {/* name gösterilir, id gönderilir. Yalnızca izinli süreçler listelenir. */}
             <Select
-              placeholder="Süreç seçin"
-              options={definitions.map((d) => ({ value: d.id, label: d.name }))}
+              placeholder={
+                allowedDefinitions.length === 0
+                  ? 'Başlatabileceğiniz süreç yok'
+                  : 'Süreç seçin'
+              }
+              options={allowedDefinitions.map((d) => ({ value: d.id, label: d.name }))}
             />
           </Form.Item>
 

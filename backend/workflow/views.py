@@ -1,30 +1,40 @@
+from collections import defaultdict
+
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Group
+from django.contrib.auth.models import Group, Permission
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db.models import Q
+from django.db.models import ProtectedError, Q
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.generics import get_object_or_404
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.views import APIView
 
 from . import services
 from .models import (
     Delegation,
+    GroupDefinitionPermission,
     Notification,
     WorkflowDefinition,
     WorkflowInstance,
+    WorkflowStep,
     WorkflowTransition,
 )
 from .serializers import (
     DelegationSerializer,
+    GroupSerializer,
     NotificationSerializer,
+    UserBasicSerializer,
+    UserWithGroupsSerializer,
     WorkflowActionSerializer,
     WorkflowDefinitionSerializer,
+    WorkflowDefinitionWriteSerializer,
     WorkflowInstanceCreateSerializer,
     WorkflowInstanceDetailSerializer,
     WorkflowInstanceListSerializer,
     WorkflowStepSerializer,
+    WorkflowStepWriteSerializer,
+    WorkflowTransitionWriteSerializer,
 )
 
 
@@ -122,12 +132,16 @@ class WorkflowInstanceViewSet(
         etkilenmez, onlar kendi mevcut kurallarıyla (liste filtresi, can_user_perform)
         çalışmaya devam eder.
 
-        Superuser her zaman yetkilidir (can_user_perform'daki superuser kuralıyla
-        tutarlı; ayrıca Django'nun has_perm'i de superuser için zaten True döner).
+        Faz 2, grup bazlı/süreç özelinde yetki: eski genel kontrolün (user_can_create_
+        instance) YERİNE, artık services.get_allowed_definitions(user) kontrol edilir —
+        bu fonksiyon zaten kısıtlanmamış süreçler için genel izne düşüyor (eski davranış
+        korunur), kısıtlanmış süreçlerde ise yalnızca izinli gruplara izin veriyor.
+        Superuser her zaman yetkilidir (get_allowed_definitions içinde ayrıca ele alınır).
         """
         user = self.request.user
-        if not (user.is_superuser or user.has_perm('workflow.add_workflowinstance')):
-            raise PermissionDenied('İş başlatma yetkiniz yok.')
+        definition = serializer.validated_data.get('definition')
+        if not services.get_allowed_definitions(user).filter(pk=definition.pk).exists():
+            raise PermissionDenied('Bu süreci başlatma yetkiniz yok.')
         serializer.save(created_by=user)
 
     @action(detail=False, methods=['get'], url_path='can-create')
@@ -135,9 +149,7 @@ class WorkflowInstanceViewSet(
         """GET /api/instances/can-create/ — frontend'in "Yeni İş Başlat" butonunu
         gösterip gizlemesi için. perform_create'teki yetki kuralıyla aynı mantık;
         burada yalnızca sonucu döndürür, hiçbir kayıt oluşturmaz/değiştirmez."""
-        user = request.user
-        can_create = user.is_superuser or user.has_perm('workflow.add_workflowinstance')
-        return Response({'can_create': can_create})
+        return Response({'can_create': services.user_can_create_instance(request.user)})
 
     @action(detail=True, methods=['post'], url_path='perform-action')
     def perform_action(self, request, pk=None):
@@ -187,6 +199,41 @@ class WorkflowInstanceViewSet(
         )
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @action(detail=True, methods=['post'], url_path='cancel')
+    def cancel(self, request, pk=None):
+        """POST /api/instances/{id}/cancel/ — işi iptal eder.
+
+        perform-action'dan BAĞIMSIZ ayrı bir akış (bkz. services.cancel_instance):
+        tanımlı bir geçiş üzerinden ilerlemez, current_step DEĞİŞMEZ. İş mantığı
+        serviste; view yalnızca isteği çözer, servisi çağırır, sonucu/hatayı HTTP
+        yanıtına çevirir (perform_action'daki desenle aynı).
+
+        Body: {"reason": "<zorunlu>"}
+        """
+        instance = self.get_object()
+        reason = request.data.get('reason', '')
+
+        try:
+            services.cancel_instance(instance, request.user, reason)
+        except PermissionDenied as exc:
+            # Kullanıcı işi başlatan kişi/yönetici değil -> 403.
+            return Response(
+                {'error': str(exc)},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        except ValidationError as exc:
+            # İş zaten aktif değil ya da gerekçe boş -> 400.
+            return Response(
+                {'error': exc.messages},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        instance.refresh_from_db()
+        serializer = WorkflowInstanceDetailSerializer(
+            instance, context=self.get_serializer_context()
+        )
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
     @action(detail=True, methods=['get'], url_path='actions')
     def actions(self, request, pk=None):
         """Bu instance'ın işlem geçmişini (audit trail) kronolojik döndürür — 2.3 ekranı için."""
@@ -197,14 +244,108 @@ class WorkflowInstanceViewSet(
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-class WorkflowDefinitionViewSet(viewsets.ReadOnlyModelViewSet):
-    """Süreç tanımları — salt okuma (list + retrieve).
+class WorkflowDefinitionViewSet(viewsets.ModelViewSet):
+    """Süreç tanımları.
 
-    Frontend'in "Yeni İş" formundaki dropdown'ı için. Yalnızca aktif süreçler döner.
+    list/retrieve: TÜM giriş yapmış kullanıcılar (frontend'in "Yeni İş" formundaki
+    dropdown'ı, Kanban süreç seçimi vb. — bkz. get_queryset, normal kullanıcıya
+    yalnızca aktif süreçler döner).
+
+    create/update/partial_update/destroy: Süreç Tasarlama ekranı — SADECE staff/
+    superuser (get_permissions, _require_staff).
     """
 
+    # Şema/router için varsayılan; asıl davranış get_queryset'te (staff/normal ayrımı).
     queryset = WorkflowDefinition.objects.filter(is_active=True)
     serializer_class = WorkflowDefinitionSerializer
+
+    def get_permissions(self):
+        """list/retrieve: herkese açık (IsAuthenticated yeterli). create/update/
+        partial_update/destroy: SADECE staff/superuser — _require_staff PermissionDenied
+        fırlatır, DRF'nin dispatch() döngüsü bunu otomatik 403'e çevirir (perform_create
+        gibi imperatif çağrılardaki AYNI mekanizma, burada get_permissions üzerinden)."""
+        if self.action in ('create', 'update', 'partial_update', 'destroy'):
+            _require_staff(self.request)
+        return [IsAuthenticated()]
+
+    def get_queryset(self):
+        """staff/superuser: TÜM süreçler (aktif + pasif/taslak) — Süreç Tasarlama
+        ekranında oluşturulan bir taslağı (is_active=False) ya da sonradan pasife
+        alınan bir süreci staff'ın kendisi bile göremez/düzenleyemez hale gelmesin diye
+        (UserViewSet.is_active'de yaşanan aynı hatanın burada tekrarlanmaması için).
+        Normal kullanıcı: eski davranış korunur, yalnızca aktif süreçler."""
+        if self.request.user.is_staff or self.request.user.is_superuser:
+            return WorkflowDefinition.objects.all()
+        return WorkflowDefinition.objects.filter(is_active=True)
+
+    def get_serializer_class(self):
+        # Yazma action'larında ham FK id'leri kabul eden serializer; okumada mevcut
+        # salt-okuma (unit adı vb. çevrilmiş) serializer.
+        if self.action in ('create', 'update', 'partial_update'):
+            return WorkflowDefinitionWriteSerializer
+        return WorkflowDefinitionSerializer
+
+    @action(detail=True, methods=['get'], url_path='validate')
+    def validate_definition(self, request, pk=None):
+        """GET /api/definitions/{id}/validate/ — bu sürecin "yayına hazır" olup
+        olmadığını kontrol eder (Süreç Tasarlama ekranı için bir gösterge). Bu bir
+        ZORUNLULUK DEĞİL — kaydetmeyi/güncellemeyi engellemez, kullanıcı adım adım
+        ekliyor olabilir, ara halde eksik olması normaldir.
+
+        Kontroller:
+          - En az bir is_start=True adım var mı?
+          - En az bir is_end=True adım var mı?
+          - is_end=False olan HER adımın en az bir çıkışı (outgoing_transitions) var
+            mı? (yoksa o adıma gelen bir iş asla ilerleyemez — "çıkmaz sokak")
+
+        Döndürür:
+            {"valid": bool, "errors": [str, ...]}
+        """
+        definition = self.get_object()
+        steps = WorkflowStep.objects.filter(definition=definition)
+        errors = []
+
+        if not steps.filter(is_start=True).exists():
+            errors.append('Başlangıç adımı yok.')
+
+        if not steps.filter(is_end=True).exists():
+            errors.append('Bitiş adımı yok.')
+
+        # outgoing_transitions__isnull=True: reverse FK üzerinden "hiç ilişkili
+        # WorkflowTransition'ı olmayan adımlar" için Django'nun standart deyimi.
+        steps_without_exit = steps.filter(
+            is_end=False, outgoing_transitions__isnull=True
+        ).values_list('name', flat=True)
+        for step_name in steps_without_exit:
+            errors.append(f'Şu adımdan hiç çıkış yok: {step_name}')
+
+        return Response({'valid': len(errors) == 0, 'errors': errors})
+
+    def destroy(self, request, *args, **kwargs):
+        """WorkflowInstance.definition da (current_step gibi) on_delete=PROTECT —
+        bu ViewSet ReadOnly'den tam CRUD'a çıkarılınca destroy fiilen açıldığı için,
+        bağlı işleri olan bir süreç silinmeye çalışılırsa ham 500 yerine anlaşılır bir
+        400 dönsün diye WorkflowStepAdminViewSet'teki AYNI savunmacı desen uygulanıyor.
+        """
+        try:
+            return super().destroy(request, *args, **kwargs)
+        except ProtectedError:
+            return Response(
+                {'error': 'Bu süreçte kayıtlı işler olduğu için silinemez.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    @action(detail=False, methods=['get'], url_path='allowed')
+    def allowed(self, request):
+        """GET /api/definitions/allowed/ — request.user'ın BAŞLATABİLECEĞİ süreçler
+        (Faz 2, grup bazlı/süreç özelinde yetki). "Yeni İş Başlat" formundaki dropdown,
+        artık tüm aktif süreçleri listeleyen düz list yerine bunu kullanmalı — asıl
+        kısıtlama zaten perform_create'te de uygulanıyor, bu yalnızca frontend'in
+        kullanıcıya baştan doğru seçenekleri göstermesi içindir.
+        """
+        qs = services.get_allowed_definitions(request.user)
+        serializer = WorkflowDefinitionSerializer(qs, many=True)
+        return Response(serializer.data)
 
     @action(detail=True, methods=['get'], url_path='steps')
     def steps(self, request, pk=None):
@@ -256,6 +397,65 @@ class WorkflowDefinitionViewSet(viewsets.ReadOnlyModelViewSet):
             for t in qs
         ]
         return Response(data)
+
+
+class WorkflowStepAdminViewSet(viewsets.ModelViewSet):
+    """Süreç Tasarlama ekranı: adım CRUD'u. SADECE staff/superuser (get_permissions,
+    her action için — list/retrieve dahil, WorkflowDefinitionViewSet'ten FARKLI olarak
+    burada okuma da kısıtlı, çünkü bu uç ham/tüm adımları -tüm süreçlerden- döner).
+
+    Mevcut GET /api/definitions/{id}/steps/ (WorkflowDefinitionViewSet.steps) ile
+    KARIŞTIRILMASIN: o salt okuma + herkese açık + tek bir sürece göre süzülü; bu ise
+    admin/steps prefix'i altında, tam CRUD, staff-only, tüm adımlar üzerinde çalışır.
+    """
+
+    queryset = WorkflowStep.objects.all()
+    serializer_class = WorkflowStepWriteSerializer
+
+    def get_permissions(self):
+        _require_staff(self.request)
+        return [IsAuthenticated()]
+
+    def destroy(self, request, *args, **kwargs):
+        """Bu adıma bağlı (current_step, on_delete=PROTECT — Karar 8) aktif
+        WorkflowInstance'lar varsa Django ProtectedError fırlatır; ham 500 yerine
+        anlaşılır bir 400 mesajına çeviriyoruz."""
+        try:
+            return super().destroy(request, *args, **kwargs)
+        except ProtectedError:
+            return Response(
+                {'error': 'Bu adımda aktif işler olduğu için silinemez.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+
+class WorkflowTransitionAdminViewSet(viewsets.ModelViewSet):
+    """Süreç Tasarlama ekranı: geçiş CRUD'u. SADECE staff/superuser.
+
+    Mevcut GET /api/definitions/{id}/transitions/ (WorkflowDefinitionViewSet.transitions,
+    süreç şeması görünümü için) ile KARIŞTIRILMASIN: bu ayrı, admin/transitions
+    prefix'i altında, tam CRUD.
+    """
+
+    queryset = WorkflowTransition.objects.all()
+    serializer_class = WorkflowTransitionWriteSerializer
+
+    def get_permissions(self):
+        _require_staff(self.request)
+        return [IsAuthenticated()]
+
+    def destroy(self, request, *args, **kwargs):
+        """WorkflowAction, transition'dan action_type/action_name'i KOPYALAR (FK
+        tutmaz) — geçmiş kayıtlar bir transition silindiğinde bozulmaz, bu yüzden
+        özel bir DB koruması yok. Yine de diğer admin ViewSet'le tutarlı olsun diye
+        aynı savunmacı desen uygulanıyor."""
+        try:
+            return super().destroy(request, *args, **kwargs)
+        except ProtectedError:
+            return Response(
+                {'error': 'Bu geçiş silinemedi.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
 
 class DelegationViewSet(viewsets.ModelViewSet):
@@ -333,21 +533,221 @@ class NotificationViewSet(
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-# --- Kullanıcı listesi (vekalet formundaki vekil seçimi için) ---
+# --- Kullanıcı listesi + Rol/Yetki Yönetimi ekranı ---
 
 User = get_user_model()
 
 
-class UserListView(APIView):
-    """GET /api/users/ — aktif kullanıcıların id + username listesi.
+def _require_staff(request):
+    """Staff/superuser değilse PermissionDenied fırlatır (DRF bunu otomatik 403'e
+    çevirir — perform_create'teki desenle aynı). UserViewSet ve GroupViewSet'in
+    staff-only aksiyonlarında ortak kullanılır (tek yerde toplanmış yetki kontrolü)."""
+    if not (request.user.is_staff or request.user.is_superuser):
+        raise PermissionDenied('Bu işlem için yetkiniz yok.')
 
-    Yalnızca vekalet formundaki Select dropdown'ına veri sağlamak için.
-    İzin: IsAuthenticated (varsayılan DRF ayarından devralır).
+
+class UserViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    """GET /api/users/ — aktif kullanıcı listesi + Rol/Yetki Yönetimi ekranı için
+    grup/izin/hesap durumu güncelleme aksiyonları.
+
+    GET /api/users/ İKİ FARKLI görünüm döner (get_serializer_class):
+      - Normal kullanıcı: sade id+username, YALNIZCA aktif hesaplar (mevcut/eski
+        davranış, vekil seçim dropdown'ı için yeterli — pasif birine vekalet
+        verilemez).
+      - staff/superuser: id+username'e ek olarak gruplar, iş başlatma izni, hesap
+        durumu, superuser durumu (UserWithGroupsSerializer) — Rol/Yetki Yönetimi
+        ekranı. Pasif kullanıcılar da DAHİL: aksi halde bir hesap pasife alınınca
+        staff onu ne listede görebilir ne de tekrar aktif yapabilirdi.
+
+    PATCH /api/users/{id}/groups/, /permissions/ ve /active/ SADECE staff/superuser
+    kullanabilir (_require_staff, 403 fırlatır).
     """
 
-    def get(self, request):
-        users = User.objects.filter(is_active=True).order_by('username')
-        data = [{'id': u.id, 'username': u.username} for u in users]
+    queryset = User.objects.all().order_by('username')
+
+    def get_serializer_class(self):
+        if self.request.user.is_staff or self.request.user.is_superuser:
+            return UserWithGroupsSerializer
+        return UserBasicSerializer
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if self.request.user.is_staff or self.request.user.is_superuser:
+            # groups için N+1 önlenir; genişletilmiş görünümde her satırda kullanılıyor.
+            return queryset.prefetch_related('groups')
+        # Normal kullanıcı: eski davranış korunur, yalnızca aktif hesaplar görünür.
+        return queryset.filter(is_active=True)
+
+    @action(detail=False, methods=['get'], url_path='me')
+    def me(self, request):
+        """GET /api/users/me/ — giriş yapmış kullanıcının is_staff/is_superuser
+        durumu. Sidebar menüsünün admin-only sekmelerini (Rol Yönetimi/Süreç
+        Yetkileri/Süreç Tasarla) sadece yetkili kullanıcılara göstermek için."""
+        return Response(
+            {
+                'is_staff': request.user.is_staff,
+                'is_superuser': request.user.is_superuser,
+            }
+        )
+
+    @action(detail=True, methods=['patch'], url_path='groups')
+    def update_groups(self, request, pk=None):
+        """PATCH /api/users/{id}/groups/ — Body: {"group_ids": [1, 3]}.
+
+        Kullanıcının gruplarını TAMAMEN gönderilen listeyle değiştirir (ekleme değil,
+        yerine koyma — group_ids'de olmayan mevcut gruplardan çıkarılır).
+        """
+        _require_staff(request)
+        user = self.get_object()
+
+        group_ids = request.data.get('group_ids')
+        if not isinstance(group_ids, list):
+            return Response(
+                {'error': 'group_ids bir liste olmalıdır.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        groups = Group.objects.filter(pk__in=group_ids)
+        user.groups.set(groups)
+
+        serializer = UserWithGroupsSerializer(user, context=self.get_serializer_context())
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['patch'], url_path='permissions')
+    def update_permissions(self, request, pk=None):
+        """PATCH /api/users/{id}/permissions/ — Body: {"can_create_instance": true/false}.
+
+        True ise 'workflow.add_workflowinstance' iznini kullanıcıya ekler, false ise
+        kaldırır (perform_create/can-create'in kontrol ettiği izinle aynı).
+        """
+        _require_staff(request)
+        user = self.get_object()
+
+        can_create_instance = request.data.get('can_create_instance')
+        if not isinstance(can_create_instance, bool):
+            return Response(
+                {'error': 'can_create_instance bir boolean olmalıdır.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        permission = Permission.objects.get(
+            content_type__app_label='workflow', codename='add_workflowinstance'
+        )
+        if can_create_instance:
+            user.user_permissions.add(permission)
+        else:
+            user.user_permissions.remove(permission)
+
+        serializer = UserWithGroupsSerializer(user, context=self.get_serializer_context())
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['patch'], url_path='active')
+    def active(self, request, pk=None):
+        """PATCH /api/users/{id}/active/ — Body: {"is_active": true/false}.
+
+        Kullanıcı hesabını aktif/pasif yapar (pasif kullanıcı giriş yapamaz — Django'nun
+        hazır auth akışı zaten is_active=False hesapları reddeder, ayrı bir kontrol
+        yazmaya gerek yok). Superuser hesabı pasif YAPILAMAZ — sistemin son
+        yöneticisinin yanlışlıkla kilitlenmesini engellemek için.
+        """
+        _require_staff(request)
+        user = self.get_object()
+
+        is_active = request.data.get('is_active')
+        if not isinstance(is_active, bool):
+            return Response(
+                {'error': 'is_active bir boolean olmalıdır.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if user.is_superuser and not is_active:
+            return Response(
+                {'error': 'Yönetici hesabı pasif yapılamaz.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user.is_active = is_active
+        user.save(update_fields=['is_active'])
+
+        serializer = UserWithGroupsSerializer(user, context=self.get_serializer_context())
+        return Response(serializer.data)
+
+
+class GroupViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
+    """GET /api/groups/ — basit grup listesi (id+name) + Rol/Yetki Yönetimi ekranı
+    için grup bazlı süreç yetkisi aksiyonları. POST /api/groups/ — yeni grup oluşturma
+    (Kullanıcı Yönetimi ekranı, "Sorumlu Grup" seçimi için artık Django admin'e
+    gitmeye gerek kalmasın diye eklendi).
+
+    Liste (GET) kısıtlama yok: grup adlarının görünmesi zararsız, veri değiştirmiyor.
+    POST /definitions/ ve GET /definition_matrix/ SADECE staff/superuser kullanabilir.
+    Silme YOK: bir grup WorkflowStep.responsible_group veya delegasyonlarda kullanılıyor
+    olabilir, silme davranışı (PROTECT/CASCADE) ayrı bir karar gerektirir — kapsam dışı.
+    """
+
+    queryset = Group.objects.all().order_by('name')
+    serializer_class = GroupSerializer
+
+    def get_permissions(self):
+        if self.action == 'create':
+            _require_staff(self.request)
+        return [IsAuthenticated()]
+
+    @action(detail=True, methods=['patch'], url_path='definitions')
+    def definitions(self, request, pk=None):
+        """PATCH /api/groups/{id}/definitions/ — Body: {"definition_ids": [1, 2]}.
+
+        Bu grubun hangi WorkflowDefinition'ları başlatabileceğini TAMAMEN gönderilen
+        listeyle değiştirir (ekleme değil, yerine koyma — update_groups'taki desenle
+        aynı mantık). definition_ids boş liste ise grup için tüm kısıtlamalar
+        kaldırılır (o gruba özel bir izin kalmaz; kısıtlanmamış süreçlerde genel izin
+        kuralı geçerli olmaya devam eder).
+        """
+        _require_staff(request)
+        group = self.get_object()
+
+        definition_ids = request.data.get('definition_ids')
+        if not isinstance(definition_ids, list):
+            return Response(
+                {'error': 'definition_ids bir liste olmalıdır.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        GroupDefinitionPermission.objects.filter(group=group).delete()
+        GroupDefinitionPermission.objects.bulk_create(
+            [
+                GroupDefinitionPermission(group=group, definition_id=definition_id)
+                for definition_id in definition_ids
+            ]
+        )
+
+        return Response({'definition_ids': definition_ids})
+
+    @action(detail=False, methods=['get'], url_path='definition_matrix')
+    def definition_matrix(self, request):
+        """GET /api/groups/definition_matrix/ — Rol/Yetki Yönetimi ekranında mevcut
+        grup bazlı süreç izinlerini bir arada görmek için: her grup + o grubun izinli
+        olduğu definition id'leri.
+
+        [{"group_id": 1, "group_name": "Evrak Birimi", "definition_ids": [1, 3]}, ...]
+        """
+        _require_staff(request)
+
+        # Tüm izinler TEK sorguda çekilip group_id'ye göre gruplanır (N+1 önlenir).
+        permissions_by_group = defaultdict(list)
+        for group_id, definition_id in GroupDefinitionPermission.objects.values_list(
+            'group_id', 'definition_id'
+        ):
+            permissions_by_group[group_id].append(definition_id)
+
+        data = [
+            {
+                'group_id': group.id,
+                'group_name': group.name,
+                'definition_ids': permissions_by_group.get(group.id, []),
+            }
+            for group in Group.objects.all().order_by('name')
+        ]
         return Response(data)
 
 

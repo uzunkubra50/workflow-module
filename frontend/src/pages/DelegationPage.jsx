@@ -22,6 +22,24 @@ const { Title } = Typography
 // Kartlara/tabloya hafif derinlik hissi veren ortak gölge (diğer sayfalarla tutarlı).
 const CARD_SHADOW = '0 1px 4px rgba(0, 0, 0, 0.08)'
 
+// Vekaletin GERÇEK durumu: is_active bayrağı tek başına yeterli değil — backend
+// (get_effective_users) vekaleti yalnızca start_date-end_date aralığı bugünü
+// kapsıyorsa uyguluyor. Bayrak True olsa bile tarih aralığı geçmişse/gelecekse
+// burada da "Aktif" göstermek yanıltıcı olur (vekalet fiilen işlemiyor olur).
+function getDelegationStatus(record) {
+  if (!record.is_active) {
+    return { label: 'Pasif', color: 'default' }
+  }
+  const today = new Date().toISOString().slice(0, 10)
+  if (today < record.start_date) {
+    return { label: 'Henüz Başlamadı', color: 'blue' }
+  }
+  if (today > record.end_date) {
+    return { label: 'Süresi Doldu', color: 'orange' }
+  }
+  return { label: 'Aktif', color: 'green' }
+}
+
 // Vekalet yönetim ekranı: kullanıcının verdiği vekaletleri listeler, yeni oluşturur, siler.
 function DelegationPage() {
   const [delegations, setDelegations] = useState([])
@@ -159,13 +177,11 @@ function DelegationPage() {
     },
     {
       title: 'Durum',
-      dataIndex: 'is_active',
-      key: 'is_active',
-      render: (isActive) => (
-        <Tag color={isActive ? 'green' : 'default'}>
-          {isActive ? 'Aktif' : 'Pasif'}
-        </Tag>
-      ),
+      key: 'status',
+      render: (_, record) => {
+        const { label, color } = getDelegationStatus(record)
+        return <Tag color={color}>{label}</Tag>
+      },
     },
     {
       title: 'İşlem',
@@ -205,13 +221,11 @@ function DelegationPage() {
     },
     {
       title: 'Durum',
-      dataIndex: 'is_active',
-      key: 'is_active',
-      render: (isActive) => (
-        <Tag color={isActive ? 'green' : 'default'}>
-          {isActive ? 'Aktif' : 'Pasif'}
-        </Tag>
-      ),
+      key: 'status',
+      render: (_, record) => {
+        const { label, color } = getDelegationStatus(record)
+        return <Tag color={color}>{label}</Tag>
+      },
     },
   ]
 

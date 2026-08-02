@@ -1,12 +1,14 @@
-from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from .views import (
     DelegationViewSet,
+    GroupViewSet,
     NotificationViewSet,
-    UserListView,
+    UserViewSet,
     WorkflowDefinitionViewSet,
     WorkflowInstanceViewSet,
+    WorkflowStepAdminViewSet,
+    WorkflowTransitionAdminViewSet,
 )
 
 router = DefaultRouter()
@@ -21,10 +23,20 @@ router.register(r'delegations', DelegationViewSet, basename='delegation')
 # /api/notifications/unread-count/ , /api/notifications/{id}/mark-read/ ,
 # /api/notifications/mark-all-read/
 router.register(r'notifications', NotificationViewSet, basename='notification')
+# Prefix 'users' -> /api/users/ (vekil seçimi ya da Rol/Yetki Yönetimi, kullanıcıya
+# göre değişir), /api/users/{id}/groups/ , /api/users/{id}/permissions/
+router.register(r'users', UserViewSet, basename='user')
+# Prefix 'groups' -> /api/groups/ — grup seçim dropdown'ı için basit liste.
+router.register(r'groups', GroupViewSet, basename='group')
+# Süreç Tasarlama ekranı (staff-only, tam CRUD) — 'admin/' önekiyle, mevcut salt-okuma
+# /api/definitions/{id}/steps/ ve /transitions/ uçlarıyla KARIŞMASIN diye ayrı prefix.
+# Prefix 'admin/steps' -> /api/admin/steps/ , /api/admin/steps/{id}/
+router.register(r'admin/steps', WorkflowStepAdminViewSet, basename='workflowstep-admin')
+# Prefix 'admin/transitions' -> /api/admin/transitions/ , /api/admin/transitions/{id}/
+router.register(
+    r'admin/transitions', WorkflowTransitionAdminViewSet, basename='workflowtransition-admin'
+)
 
-urlpatterns = router.urls + [
-    # Vekalet formundaki vekil seçimi için kullanıcı listesi.
-    path('users/', UserListView.as_view(), name='user-list'),
-]
+urlpatterns = router.urls
 
 

@@ -33,6 +33,9 @@ const STATUS_COLORS = {
   active: 'blue',
   completed: 'green',
   rejected: 'volcano',
+  // İş iptali: diğer üç durumdan (mavi/yeşil/kırmızı) ayrışan nötr gri ton —
+  // "olumlu/olumsuz sonuç" değil, "süreç dışına çıkarıldı" anlamı taşıyor.
+  cancelled: '#8c8c8c',
 }
 
 // action_type koduna göre Timeline noktası/etiket rengi.
@@ -40,6 +43,9 @@ const ACTION_TYPE_COLORS = {
   approve: 'green',
   reject: 'red',
   return: 'orange',
+  // STATUS_COLORS.cancelled ile aynı nötr gri ton — İşlem Geçmişi'ndeki iptal
+  // kaydı da (nokta + Tag) görsel olarak tutarlı görünsün diye.
+  cancel: '#8c8c8c',
 }
 
 // Kartlara hafif derinlik hissi veren ortak gölge (liste ekranıyla tutarlı).
@@ -85,6 +91,12 @@ function InstanceDetailPage() {
   const [selectedTransition, setSelectedTransition] = useState(null)
   const [actionNote, setActionNote] = useState('')
   const [submitting, setSubmitting] = useState(false)
+
+  // İptal modalı ile ilgili state'ler — mevcut aksiyon modalından TAMAMEN ayrı
+  // (transition_id yok, gerekçe zorunlu, ayrı bir endpoint).
+  const [cancelModalOpen, setCancelModalOpen] = useState(false)
+  const [cancelReason, setCancelReason] = useState('')
+  const [cancelling, setCancelling] = useState(false)
 
   // Detay ve işlem geçmişini paralel çek (Promise.all).
   // Not: setState'ler await SONRASINDA çağrılır (senkron değil) — effect'ten güvenle çağrılır.
@@ -142,6 +154,34 @@ function InstanceDetailPage() {
       message.error(Array.isArray(msg) ? msg.join(' ') : msg)
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  // "İptal Et" butonuna basılınca: gerekçeyi sıfırla, modalı aç.
+  function openCancelModal() {
+    setCancelReason('')
+    setCancelModalOpen(true)
+  }
+
+  // İptal modalı "İptal Et": gerekçe boşsa göndermeden durdur, doluysa backend'e gönder.
+  async function handleCancelSubmit() {
+    if (!cancelReason.trim()) {
+      message.warning('Gerekçe girmelisiniz.')
+      return
+    }
+
+    setCancelling(true)
+    try {
+      await api.post(`/api/instances/${id}/cancel/`, { reason: cancelReason })
+      setCancelModalOpen(false)
+      message.success('İş iptal edildi.')
+      await loadData() // ekranı yenile: durum + Aksiyonlar bölümü + geçmiş güncellensin
+    } catch (err) {
+      const data = err.response?.data
+      const msg = data?.error || data?.detail || 'İş iptal edilemedi.'
+      message.error(Array.isArray(msg) ? msg.join(' ') : msg)
+    } finally {
+      setCancelling(false)
     }
   }
 
@@ -222,7 +262,6 @@ function InstanceDetailPage() {
           <Tag color={STATUS_COLORS[instance.status]}>{instance.status_display}</Tag>
         </Descriptions.Item>
         <Descriptions.Item label="Belge">{instance.document_ref || '—'}</Descriptions.Item>
-        <Descriptions.Item label="Atanan">{instance.assigned_to || '—'}</Descriptions.Item>
 
         {/* Başlatan kullanıcı — backend created_by (username) döner. */}
         <Descriptions.Item
@@ -258,10 +297,11 @@ function InstanceDetailPage() {
 
       {/* 3) Aksiyonlar — üç durum: (a) iş bitmiş, (b) aktif ama yetkisiz, (c) aktif ve yetkili. */}
       {instance.status !== 'active' ? (
-        // (a) İş tamamlanmış/reddedilmiş — aksiyon zaten mümkün değil.
+        // (a) İş tamamlanmış/reddedilmiş/iptal edilmiş — aksiyon zaten mümkün değil.
+        // Bu dal artık cancelled'ı da kapsıyor (status !== 'active'), metin buna göre güncellendi.
         <Alert
           type="info"
-          message="Bu iş tamamlanmış/reddedilmiş, işlem yapılamaz."
+          message="Bu iş tamamlanmış, reddedilmiş ya da iptal edilmiş; işlem yapılamaz."
           showIcon
           style={{ marginBottom: 24 }}
         />
@@ -304,6 +344,19 @@ function InstanceDetailPage() {
               ))}
             </Space>
           )}
+        </div>
+      )}
+
+      {/* İptal Et: can_perform_action'dan BAĞIMSIZ bir yetki kuralı (bkz. backend
+          can_cancel — sahibi ya da yönetici + iş aktif). Bilerek yukarıdaki (a)/(b)/(c)
+          dallarının DIŞINDA: asıl senaryo, işi başlatan kişinin, henüz kimsenin
+          (kendisinin sorumlu grupta olmadığı bir adımda) el sürmediği işi geri çekmesi
+          — bu durumda (b) dalı sadece uyarı gösterir, buton yoksa iptal hiç mümkün olmaz. */}
+      {instance.can_cancel && (
+        <div style={{ marginBottom: 24 }}>
+          <Button danger ghost onClick={openCancelModal}>
+            İptal Et
+          </Button>
         </div>
       )}
 
@@ -364,6 +417,31 @@ function InstanceDetailPage() {
           value={actionNote}
           onChange={(e) => setActionNote(e.target.value)}
           placeholder="Opsiyonel açıklama notu..."
+        />
+      </Modal>
+
+      {/* İptal modalı: mevcut aksiyon modalından TAMAMEN ayrı, basit bir modal. */}
+      <Modal
+        open={cancelModalOpen}
+        title="İşi İptal Et"
+        onOk={handleCancelSubmit}
+        onCancel={() => setCancelModalOpen(false)}
+        confirmLoading={cancelling}
+        okText="İptal Et"
+        okButtonProps={{ danger: true }}
+        cancelText="Vazgeç"
+      >
+        <Alert
+          type="warning"
+          message="Bu işlem geri alınamaz."
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+        <TextArea
+          rows={4}
+          value={cancelReason}
+          onChange={(e) => setCancelReason(e.target.value)}
+          placeholder="İptal gerekçesi (zorunlu)..."
         />
       </Modal>
     </>

@@ -6,8 +6,10 @@ from django.utils import timezone
 
 from .models import (
     Delegation,
+    GroupDefinitionPermission,
     Notification,
     WorkflowAction,
+    WorkflowDefinition,
     WorkflowInstance,
     WorkflowStep,
     WorkflowTransition,
@@ -18,6 +20,67 @@ def notify(user, message, instance=None):
     """Kullanıcıya uygulama-içi bildirim oluşturur (Faz 3). SMTP/e-posta YOK,
     yalnızca veritabanına yazılır; frontend bell ikonuyla gösterir."""
     Notification.objects.create(recipient=user, message=message, instance=instance)
+
+
+def user_can_create_instance(user):
+    """Kullanıcının yeni WorkflowInstance başlatma yetkisi olup olmadığını döner.
+
+    Süperuser her zaman yetkilidir; aksi halde 'workflow.add_workflowinstance' izni
+    aranır. Bu kural birden fazla yerde (perform_create, can-create action, Rol/Yetki
+    Yönetimi ekranı serializer'ı) kullanılıyor — CLAUDE.md'deki vekalet dersi gereği
+    (aynı yetki kuralı ayrı yerlerde yazılırsa biri güncellenip diğeri unutulabilir)
+    tek yerde toplandı.
+    """
+    return user.is_superuser or user.has_perm('workflow.add_workflowinstance')
+
+
+def get_allowed_definitions(user):
+    """Kullanıcının BAŞLATABİLECEĞİ WorkflowDefinition'ları döndürür.
+
+    Faz 2, grup bazlı/süreç özelinde başlatma yetkisi: bazı süreçler artık yalnızca
+    belirli gruplara açık olabilir (GroupDefinitionPermission). Kural:
+      - superuser ise: tüm aktif süreçler.
+      - Bir süreç HİÇ kısıtlanmamışsa (o definition için GroupDefinitionPermission
+        kaydı yoksa): eski/genel davranışa düş — user_can_create_instance(user)
+        True ise dahil (global 'İş Başlatabilir' izni).
+      - Bir süreç kısıtlanmışsa (en az bir kaydı varsa): yalnızca kullanıcının
+        gruplarından biri o süreç için izinliyse dahil — bu durumda global izin
+        GEÇERSİZDİR, çünkü süreç özel olarak belirli gruplara daraltılmış demektir.
+
+    Girdi:
+        user: kontrol edilecek kullanıcı.
+
+    Döndürür:
+        QuerySet[WorkflowDefinition]: is_active=True süreçler arasından süzülmüş.
+    """
+    active_definitions = WorkflowDefinition.objects.filter(is_active=True)
+
+    if user.is_superuser:
+        return active_definitions
+
+    general_permission = user_can_create_instance(user)
+    user_group_ids = set(user.groups.values_list('id', flat=True))
+
+    # Tüm kısıtlamalar TEK sorguda çekilip definition_id'ye göre gruplanır
+    # (her definition için ayrı sorgu atmamak için — N+1 önlenir).
+    restrictions_by_definition = defaultdict(set)
+    for definition_id, group_id in GroupDefinitionPermission.objects.filter(
+        definition__in=active_definitions
+    ).values_list('definition_id', 'group_id'):
+        restrictions_by_definition[definition_id].add(group_id)
+
+    allowed_ids = []
+    for definition in active_definitions:
+        restricted_group_ids = restrictions_by_definition.get(definition.id)
+        if not restricted_group_ids:
+            # Kısıtlanmamış süreç: eski/genel davranış.
+            if general_permission:
+                allowed_ids.append(definition.id)
+        elif user_group_ids & restricted_group_ids:
+            # Kısıtlanmış süreç: yalnızca izinli gruplardan biri üyeyse.
+            allowed_ids.append(definition.id)
+
+    return active_definitions.filter(id__in=allowed_ids)
 
 
 def get_available_transitions(instance):
@@ -226,6 +289,82 @@ def perform_transition(instance, transition, user, note=""):
         pass
 
     # 4) Çağıran taraf sonucu görebilsin diye oluşturulan audit kaydını döndür.
+    return action
+
+
+def cancel_instance(instance, user, reason):
+    """Bir WorkflowInstance'ı iptal eder (Tarık Bey'in ② numaralı sorusu: iş iptali).
+
+    perform_transition'dan BAĞIMSIZ, tamamen ayrı bir akıştır: tanımlı bir
+    WorkflowTransition üzerinden ilerlemez, current_step DEĞİŞMEZ — iş hangi adımda
+    iptal edildiyse orada görünmeye devam eder, yalnızca status CANCELLED'a çekilir.
+
+    Girdi:
+        instance (WorkflowInstance): iptal edilecek iş.
+        user: iptali yapan kullanıcı.
+        reason (str): iptal gerekçesi (zorunlu).
+
+    Yapar:
+        - Yetki kontrolü: yalnızca işi başlatan kişi (created_by) veya superuser
+          iptal edebilir; aksi halde hiçbir değişiklik yapmadan PermissionDenied
+          fırlatır.
+        - Yalnızca ACTIVE durumundaki işler iptal edilebilir; gerekçe boş olamaz —
+          bu iki koşuldan biri sağlanmazsa hiçbir değişiklik yapmadan ValidationError
+          fırlatır.
+        - transaction.atomic() içinde (ya hep ya hiç): status CANCELLED'a çekilir
+          (current_step AYNEN kalır), bir WorkflowAction (audit) kaydı oluşturulur —
+          to_step=None (bir sonraki adıma geçiş yok), action_type=CANCEL.
+
+    Fırlatır:
+        django.core.exceptions.PermissionDenied: kullanıcı yetkili değilse.
+        django.core.exceptions.ValidationError: iş aktif değilse ya da gerekçe boşsa.
+
+    Döndürür:
+        WorkflowAction: oluşturulan iptal kaydı.
+    """
+    # 0) YETKİ KONTROLÜ: yalnızca işi başlatan kişi ya da yönetici iptal edebilir.
+    if not user.is_superuser and instance.created_by != user:
+        raise PermissionDenied(
+            'Bu işi iptal etme yetkiniz yok. Sadece işi başlatan kişi ya da '
+            'yönetici iptal edebilir.'
+        )
+
+    # 1) DOĞRULAMA: yalnızca aktif işler iptal edilebilir, gerekçe zorunludur.
+    if instance.status != WorkflowInstance.Status.ACTIVE:
+        raise ValidationError('Sadece aktif işler iptal edilebilir.')
+
+    if not reason:
+        raise ValidationError('İptal gerekçesi zorunludur.')
+
+    # 2) Atomik blok: aşağıdaki adımlardan biri patlarsa hepsi geri alınır.
+    with transaction.atomic():
+        instance.status = WorkflowInstance.Status.CANCELLED
+        instance.save()
+
+        action = WorkflowAction.objects.create(
+            instance=instance,
+            from_step=instance.current_step,
+            to_step=None,
+            action_type=WorkflowTransition.ActionType.CANCEL,
+            action_name='İptal Edildi',
+            performed_by=user,
+            note=reason,
+        )
+
+    # 3) BİLDİRİM: atomic bloğun DIŞINDA ve try/except ile — perform_transition'daki
+    #    desenle aynı, bildirim patlarsa bile asıl işlem başarısız OLMASIN. İptal eden,
+    #    işi başlatan kişiden FARKLIYSA (örn. superuser iptal ettiyse) haber verilir;
+    #    created_by zaten iptal edenin kendisiyse bildirime gerek yok.
+    try:
+        if instance.created_by is not None and instance.created_by != user:
+            notify(
+                instance.created_by,
+                f"'{instance.subject}' işi iptal edildi. Gerekçe: {reason}",
+                instance,
+            )
+    except Exception:
+        pass
+
     return action
 
 

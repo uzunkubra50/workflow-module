@@ -83,6 +83,11 @@ class WorkflowTransition(models.Model):
         APPROVE = 'approve', 'Onayla'
         REJECT = 'reject', 'Reddet'
         RETURN = 'return', 'İade'
+        # İş iptali (Tarık Bey'in ② numaralı sorusu): tanımlı bir geçiş DEĞİL, bu yüzden
+        # WorkflowTransition kaydı olarak hiç kullanılmaz — yalnızca WorkflowAction.
+        # action_type'ının alabileceği bir değer olarak burada tanımlı (aynı enum
+        # paylaşılıyor, bkz. WorkflowAction.action_type choices=ActionType.choices).
+        CANCEL = 'cancel', 'İptal'
 
     definition = models.ForeignKey(
         WorkflowDefinition,
@@ -119,6 +124,10 @@ class WorkflowInstance(models.Model):
         ACTIVE = 'active', 'Aktif'
         COMPLETED = 'completed', 'Tamamlandı'
         REJECTED = 'rejected', 'Reddedildi'
+        # İş iptali (Tarık Bey'in ② numaralı sorusu): perform_transition'daki tanımlı
+        # geçişlerden BAĞIMSIZ bir akış — bkz. services.cancel_instance. current_step
+        # DEĞİŞMEZ, yalnızca status buraya çekilir (hangi adımda iptal edildiği kalır).
+        CANCELLED = 'cancelled', 'İptal Edildi'
 
     definition = models.ForeignKey(
         WorkflowDefinition,
@@ -274,6 +283,37 @@ class Delegation(models.Model):
             raise ValidationError('Bitiş tarihi başlangıçtan önce olamaz.')
         if self.delegator_id and self.delegate_id and self.delegator_id == self.delegate_id:
             raise ValidationError('Kişi kendine vekalet veremez.')
+
+
+# --- GRUP BAZLI, SÜREÇ ÖZELİNDE BAŞLATMA YETKİSİ ---
+
+
+class GroupDefinitionPermission(models.Model):
+    """Bir grubun hangi WorkflowDefinition'ı başlatabileceğini kısıtlar.
+
+    Bir definition için hiç kayıt yoksa o süreç KISITLANMAMIŞ demektir; bu durumda
+    services.user_can_create_instance (genel 'workflow.add_workflowinstance' izni)
+    geçerli olmaya devam eder — eski/genel davranış bozulmaz. Bir definition için EN
+    AZ BİR kayıt varsa, o süreç artık YALNIZCA burada listelenen gruplara açıktır;
+    genel izin bu durumda geçersizdir (bkz. services.get_allowed_definitions).
+    """
+
+    group = models.ForeignKey(
+        Group,
+        on_delete=models.CASCADE,
+        related_name='definition_permissions',
+    )
+    definition = models.ForeignKey(
+        WorkflowDefinition,
+        on_delete=models.CASCADE,
+        related_name='group_permissions',
+    )
+
+    class Meta:
+        unique_together = ('group', 'definition')
+
+    def __str__(self):
+        return f"{self.group} → {self.definition}"
 
 
 # --- BİLDİRİM MODELİ (Faz 3, uygulama-içi bildirim — SMTP/e-posta YOK) ---

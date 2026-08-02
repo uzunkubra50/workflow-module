@@ -16,9 +16,12 @@ import {
   BarChartOutlined,
   BellOutlined,
   DeploymentUnitOutlined,
+  FileProtectOutlined,
   LogoutOutlined,
   PartitionOutlined,
+  SafetyOutlined,
   SwapOutlined,
+  ToolOutlined,
   UnorderedListOutlined,
   UserOutlined,
 } from '@ant-design/icons'
@@ -30,7 +33,8 @@ const { Text } = Typography
 // Kurumsal lacivert — Sider/Menu/marka alanının ortak zemin rengi.
 const NAVY = '#0f2540'
 
-const menuItems = [
+// Herkese açık menü öğeleri (sıra: genel kullanıcı ekranları).
+const baseMenuItems = [
   {
     key: '/',
     icon: <UnorderedListOutlined />,
@@ -53,6 +57,26 @@ const menuItems = [
   },
 ]
 
+// Sadece staff/superuser'a gösterilecek admin ekranları — backend zaten bu uçları
+// 403 ile koruyor, ama normal kullanıcıya menüde hiç görünmemeleri daha temiz bir UX.
+const adminMenuItems = [
+  {
+    key: '/users',
+    icon: <SafetyOutlined />,
+    label: <Link to="/users">Rol Yönetimi</Link>,
+  },
+  {
+    key: '/definition-permissions',
+    icon: <FileProtectOutlined />,
+    label: <Link to="/definition-permissions">Süreç Yetkileri</Link>,
+  },
+  {
+    key: '/process-designer',
+    icon: <ToolOutlined />,
+    label: <Link to="/process-designer">Süreç Tasarla</Link>,
+  },
+]
+
 // URL yoluna göre breadcrumb öğelerini üretir.
 function getBreadcrumbItems(pathname) {
   if (pathname.startsWith('/instances/')) {
@@ -66,6 +90,15 @@ function getBreadcrumbItems(pathname) {
   }
   if (pathname.startsWith('/diagram')) {
     return [{ title: 'Süreç Şeması' }]
+  }
+  if (pathname.startsWith('/users')) {
+    return [{ title: 'Rol Yönetimi' }]
+  }
+  if (pathname.startsWith('/definition-permissions')) {
+    return [{ title: 'Süreç Yetkileri' }]
+  }
+  if (pathname.startsWith('/process-designer')) {
+    return [{ title: 'Süreç Tasarla' }]
   }
   return [{ title: 'İş Akışlarım' }]
 }
@@ -81,6 +114,23 @@ function AppLayout({ children }) {
   const [notifications, setNotifications] = useState([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [notifDropdownOpen, setNotifDropdownOpen] = useState(false)
+
+  // Admin menü öğelerini (Rol Yönetimi/Süreç Yetkileri/Süreç Tasarla) sadece
+  // staff/superuser görsün diye — mount olunca bir kere çekilir.
+  const [isStaff, setIsStaff] = useState(false)
+  useEffect(() => {
+    async function fetchMe() {
+      try {
+        const { data } = await api.get('/api/users/me/')
+        setIsStaff(data.is_staff || data.is_superuser)
+      } catch {
+        // Sessizce geç — varsayılan false (admin sekmeleri gizli) kalır.
+      }
+    }
+    fetchMe()
+  }, [])
+
+  const menuItems = isStaff ? [...baseMenuItems, ...adminMenuItems] : baseMenuItems
 
   // Çıkış: yerel token'ları (+ kullanıcı adını, api.js logout) sil ve giriş ekranına dön.
   function handleLogout() {
@@ -273,7 +323,13 @@ function AppLayout({ children }) {
                 ? '/analytics'
                 : location.pathname.startsWith('/diagram')
                   ? '/diagram'
-                  : '/',
+                  : location.pathname.startsWith('/users')
+                    ? '/users'
+                    : location.pathname.startsWith('/definition-permissions')
+                      ? '/definition-permissions'
+                      : location.pathname.startsWith('/process-designer')
+                        ? '/process-designer'
+                        : '/',
           ]}
           items={menuItems}
           style={{ background: NAVY }}
