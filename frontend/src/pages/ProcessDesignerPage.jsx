@@ -20,7 +20,7 @@ import {
 import { DeleteOutlined, EditOutlined, PlusOutlined, ToolOutlined } from '@ant-design/icons'
 import api from '../api.js'
 
-const { Title } = Typography
+const { Title, Text } = Typography
 
 // Kartlara/tabloya hafif derinlik hissi veren ortak gölge (diğer sayfalarla tutarlı).
 const CARD_SHADOW = '0 1px 4px rgba(0, 0, 0, 0.08)'
@@ -70,6 +70,11 @@ function ProcessDesignerPage() {
   const [newProcessModalOpen, setNewProcessModalOpen] = useState(false)
   const [creatingProcess, setCreatingProcess] = useState(false)
   const [newProcessForm] = Form.useForm()
+
+  // "Süreci Düzenle" modalı — seçili sürecin ad/kod/aktiflik durumunu değiştirir.
+  const [editProcessModalOpen, setEditProcessModalOpen] = useState(false)
+  const [savingProcess, setSavingProcess] = useState(false)
+  const [editProcessForm] = Form.useForm()
 
   // Adım modalı (hem "yeni" hem "düzenle" için tek modal — editingStep null ise yeni).
   const [stepModalOpen, setStepModalOpen] = useState(false)
@@ -122,6 +127,45 @@ function ProcessDesignerPage() {
   function handleSelectDefinition(definitionId) {
     setSelectedDefinitionId(definitionId ?? null)
     setValidateResult(null)
+  }
+
+  const selectedDefinition = definitions.find((d) => d.id === selectedDefinitionId) ?? null
+
+  // "Süreci Düzenle": modalı seçili sürecin mevcut değerleriyle aç.
+  function openEditProcessModal() {
+    if (!selectedDefinition) return
+    editProcessForm.setFieldsValue({
+      name: selectedDefinition.name,
+      code: selectedDefinition.code,
+      is_active: selectedDefinition.is_active,
+    })
+    setEditProcessModalOpen(true)
+  }
+
+  // "Süreci Düzenle" modalı "Kaydet": PATCH /api/definitions/{id}/.
+  async function handleEditProcess() {
+    let values
+    try {
+      values = await editProcessForm.validateFields()
+    } catch {
+      return
+    }
+    setSavingProcess(true)
+    try {
+      const { data } = await api.patch(`/api/definitions/${selectedDefinitionId}/`, {
+        name: values.name,
+        code: values.code,
+        is_active: !!values.is_active,
+      })
+      setDefinitions((prev) => prev.map((d) => (d.id === data.id ? data : d)))
+      message.success('Süreç güncellendi.')
+      setEditProcessModalOpen(false)
+    } catch (err) {
+      const data = err.response?.data
+      message.error(data?.name?.[0] || data?.code?.[0] || 'Süreç güncellenemedi.')
+    } finally {
+      setSavingProcess(false)
+    }
   }
 
   // Bu sürece ait adımlar (sıraya göre) ve geçişler.
@@ -178,6 +222,7 @@ function ProcessDesignerPage() {
       is_start: step.is_start,
       is_end: step.is_end,
       max_duration_days: step.max_duration_days,
+      escalation_group: step.escalation_group,
     })
     setStepModalOpen(true)
   }
@@ -198,6 +243,7 @@ function ProcessDesignerPage() {
       is_start: !!values.is_start,
       is_end: !!values.is_end,
       max_duration_days: values.max_duration_days ?? null,
+      escalation_group: values.escalation_group ?? null,
     }
     try {
       if (editingStep) {
@@ -356,6 +402,12 @@ function ProcessDesignerPage() {
       render: (days) => (days ? `${days} gün` : '—'),
     },
     {
+      title: 'Eskalasyon',
+      dataIndex: 'escalation_group',
+      key: 'escalation_group',
+      render: (groupId) => groupNameById.get(groupId) || '—',
+    },
+    {
       title: 'İşlemler',
       key: 'actions',
       render: (_, step) => (
@@ -434,10 +486,17 @@ function ProcessDesignerPage() {
           marginBottom: 24,
         }}
       >
-        <Title level={3} style={{ margin: 0 }}>
-          <ToolOutlined style={{ marginRight: 8 }} />
-          Süreç Tasarla
-        </Title>
+        <div>
+          <Title level={3} style={{ margin: 0 }}>
+            <ToolOutlined style={{ marginRight: 8 }} />
+            Süreç Tasarla
+          </Title>
+          {/* Ekranın ne işe yaradığını tek cümleyle anlatan alt başlık. */}
+          <Text type="secondary" style={{ fontSize: 13 }}>
+            Süreçlerin adımlarını, sorumlu gruplarını ve adımlar arasındaki izinli
+            geçişleri buradan tanımlayın
+          </Text>
+        </div>
         {selectedDefinitionId && (
           <Button onClick={handleValidate} loading={validating}>
             Doğrula
@@ -467,6 +526,11 @@ function ProcessDesignerPage() {
         >
           Yeni Süreç
         </Button>
+        {selectedDefinition && (
+          <Button icon={<EditOutlined />} onClick={openEditProcessModal}>
+            Süreci Düzenle
+          </Button>
+        )}
       </Space>
 
       {/* Doğrulama sonucu. */}
@@ -593,6 +657,42 @@ function ProcessDesignerPage() {
         </Form>
       </Modal>
 
+      {/* "Süreci Düzenle" modalı — ad/kod/aktiflik. */}
+      <Modal
+        open={editProcessModalOpen}
+        title="Süreci Düzenle"
+        onOk={handleEditProcess}
+        onCancel={() => setEditProcessModalOpen(false)}
+        confirmLoading={savingProcess}
+        okText="Kaydet"
+        cancelText="Vazgeç"
+      >
+        <Form form={editProcessForm} layout="vertical">
+          <Form.Item
+            label="Süreç Adı"
+            name="name"
+            rules={[{ required: true, message: 'Süreç adı zorunludur.' }]}
+          >
+            <Input placeholder="Örn. Ruhsat Başvuru Süreci" />
+          </Form.Item>
+          <Form.Item
+            label="Kod"
+            name="code"
+            rules={[{ required: true, message: 'Kod zorunludur.' }]}
+          >
+            <Input placeholder="Örn. RUHSAT" />
+          </Form.Item>
+          <Form.Item
+            name="is_active"
+            valuePropName="checked"
+            style={{ marginBottom: 0 }}
+            tooltip="Taslak süreçler İş Akışlarım'daki 'Yeni İş Başlat' listesinde görünmez, sadece burada düzenlenebilir."
+          >
+            <Checkbox>Aktif (kapalıysa taslak sayılır)</Checkbox>
+          </Form.Item>
+        </Form>
+      </Modal>
+
       {/* Adım modalı — hem yeni ekleme hem düzenleme için. */}
       <Modal
         open={stepModalOpen}
@@ -627,6 +727,13 @@ function ProcessDesignerPage() {
             tooltip="Bu adımda geçen süre bu gün sayısını aşarsa iş 'Gecikti' olarak işaretlenir. Boş bırakılırsa süre takibi yapılmaz."
           >
             <InputNumber min={1} style={{ width: '100%' }} placeholder="Opsiyonel" />
+          </Form.Item>
+          <Form.Item
+            label="Eskalasyon Grubu"
+            name="escalation_group"
+            tooltip="SLA süresi aşılıp bu adım hâlâ tamamlanmadığında ek olarak haberdar edilecek grup. Sorumlu grubun yerini almaz, sadece ek görünürlük sağlar."
+          >
+            <Select placeholder="Grup seçin (opsiyonel)" allowClear options={groupOptions} />
           </Form.Item>
           <Form.Item name="is_start" valuePropName="checked" style={{ marginBottom: 8 }}>
             <Checkbox>Başlangıç adımı</Checkbox>
