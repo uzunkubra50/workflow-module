@@ -1,5 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
@@ -349,6 +351,40 @@ class UserBasicSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['id', 'username']
+
+
+# POST /api/users/ — Rol/Yetki Yönetimi ekranından yeni kullanıcı hesabı açmak için
+# (artık Django admin'e gitmeye gerek kalmasın diye). Şifre write_only — hiçbir
+# yanıtta geri dönmez; create_user kullanılarak doğru şekilde hash'lenir.
+class UserCreateSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(
+        validators=[
+            UniqueValidator(
+                queryset=User.objects.all(),
+                message='Bu kullanıcı adı zaten kullanılıyor.',
+            )
+        ],
+    )
+    password = serializers.CharField(write_only=True, style={'input_type': 'password'})
+
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'password']
+
+    def validate_password(self, value):
+        # Django'nun standart şifre kurallarını (settings.AUTH_PASSWORD_VALIDATORS)
+        # kullanıcı adıyla benzerlik kontrolü de dahil olacak şekilde uygular.
+        try:
+            validate_password(value, user=User(username=self.initial_data.get('username', '')))
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(list(exc.messages))
+        return value
+
+    def create(self, validated_data):
+        return User.objects.create_user(
+            username=validated_data['username'],
+            password=validated_data['password'],
+        )
 
 
 # GET /api/users/ — STAFF/SUPERUSER için genişletilmiş görünüm (Rol/Yetki Yönetimi

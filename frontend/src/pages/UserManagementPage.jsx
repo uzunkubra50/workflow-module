@@ -2,10 +2,13 @@ import { useEffect, useState } from 'react'
 import {
   Alert,
   Button,
+  Divider,
   Form,
   Input,
   Modal,
+  Popconfirm,
   Select,
+  Space,
   Spin,
   Switch,
   Table,
@@ -13,7 +16,7 @@ import {
   Typography,
   message,
 } from 'antd'
-import { PlusOutlined, SafetyOutlined } from '@ant-design/icons'
+import { DeleteOutlined, PlusOutlined, SafetyOutlined } from '@ant-design/icons'
 import api from '../api.js'
 
 const { Title, Text } = Typography
@@ -38,7 +41,16 @@ function UserManagementPage() {
   // artık Django admin'e gitmeye gerek kalmasın diye eklendi.
   const [groupModalOpen, setGroupModalOpen] = useState(false)
   const [creatingGroup, setCreatingGroup] = useState(false)
+  const [deletingGroupId, setDeletingGroupId] = useState(null)
   const [groupForm] = Form.useForm()
+
+  // Yeni kullanıcı oluşturma modalı — yeni bir çalışan için hesap açmak üzere artık
+  // Django admin'e gitmeye gerek kalmasın diye eklendi. Grup/izin ataması bu formda
+  // yok — kullanıcı oluşturulduktan sonra tablodaki mevcut Gruplar/İş Başlatabilir
+  // kontrolleriyle ayrıca ayarlanıyor.
+  const [userModalOpen, setUserModalOpen] = useState(false)
+  const [creatingUser, setCreatingUser] = useState(false)
+  const [userForm] = Form.useForm()
 
   // Mount olunca kullanıcıları ve grupları paralel çek.
   useEffect(() => {
@@ -168,6 +180,55 @@ function UserManagementPage() {
     }
   }
 
+  // Grup silme: DELETE /api/groups/{id}/. Bu gruba dayalı adımlar SET_NULL ile
+  // sorumlu/eskalasyon grubunu kaybeder (bkz. backend GroupViewSet açıklaması) —
+  // bunu Popconfirm metninde açıkça belirtiyoruz, silme kendisi engellenmiyor.
+  // Başarılıysa hem gruplar listesinden hem de tablodaki kullanıcıların grup
+  // etiketlerinden düşürüyoruz (o kullanıcılar zaten backend'de M2M'den otomatik çıktı).
+  async function handleDeleteGroup(group) {
+    setDeletingGroupId(group.id)
+    try {
+      await api.delete(`/api/groups/${group.id}/`)
+      setGroups((prev) => prev.filter((g) => g.id !== group.id))
+      setUsers((prev) =>
+        prev.map((u) => ({
+          ...u,
+          groups: u.groups?.filter ? u.groups.filter((g) => g.id !== group.id) : u.groups,
+        })),
+      )
+      message.success('Grup silindi.')
+    } catch (err) {
+      console.error('Grup silinemedi:', err)
+      message.error(err.response?.data?.error || 'Grup silinemedi.')
+    } finally {
+      setDeletingGroupId(null)
+    }
+  }
+
+  // Yeni kullanıcı oluşturma: POST /api/users/. Başarılıysa dönen kaydı (diğer
+  // satırlarla aynı alan setiyle — groups: [], can_create_instance: false vb.)
+  // doğrudan tabloya ekler.
+  async function handleCreateUser(values) {
+    setCreatingUser(true)
+    try {
+      const { data } = await api.post('/api/users/', {
+        username: values.username,
+        password: values.password,
+      })
+      setUsers((prev) => [...prev, data].sort((a, b) => a.username.localeCompare(b.username)))
+      message.success('Kullanıcı oluşturuldu.')
+      setUserModalOpen(false)
+      userForm.resetFields()
+    } catch (err) {
+      console.error('Kullanıcı oluşturulamadı:', err)
+      const data = err.response?.data
+      const msg = data?.username?.[0] || data?.password?.[0] || 'Kullanıcı oluşturulamadı.'
+      message.error(msg)
+    } finally {
+      setCreatingUser(false)
+    }
+  }
+
   const columns = [
     {
       title: 'Kullanıcı Adı',
@@ -272,25 +333,31 @@ function UserManagementPage() {
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          marginBottom: 16,
+          marginBottom: 24,
         }}
       >
-        <Title level={3} style={{ margin: 0 }}>
-          <SafetyOutlined style={{ marginRight: 8 }} />
-          Rol ve Yetki Yönetimi
-        </Title>
-        <Button icon={<PlusOutlined />} onClick={() => setGroupModalOpen(true)}>
-          Yeni Grup
-        </Button>
+        <div>
+          <Title level={3} style={{ margin: 0 }}>
+            <SafetyOutlined style={{ marginRight: 8 }} />
+            Rol Yönetimi
+          </Title>
+          {/* Açıklama diğer ekranlarla aynı desende (başlık altı alt satır).
+              "Değişiklikler anında kaydedilir" bilgisi burada kalıyor: kullanıcı
+              ayrı bir Kaydet butonu aradığında kafası karışmasın. */}
+          <Text type="secondary" style={{ fontSize: 13 }}>
+            Kullanıcıların hangi gruplarda olduğunu ve iş başlatma yetkisini yönetin —
+            değişiklikler anında kaydedilir
+          </Text>
+        </div>
+        <Space>
+          <Button icon={<PlusOutlined />} onClick={() => setUserModalOpen(true)}>
+            Yeni Kullanıcı
+          </Button>
+          <Button icon={<PlusOutlined />} onClick={() => setGroupModalOpen(true)}>
+            Gruplar
+          </Button>
+        </Space>
       </div>
-
-      {/* Bilgilendirme mesajı. */}
-      <Alert
-        type="info"
-        message="Kullanıcıların hangi gruplarda olduğunu ve yeni iş başlatma yetkisini buradan yönetebilirsiniz. Değişiklikler anında kaydedilir."
-        showIcon
-        style={{ marginBottom: 24 }}
-      />
 
       {/* Kullanıcı tablosu. */}
       <div
@@ -309,9 +376,9 @@ function UserManagementPage() {
         />
       </div>
 
-      {/* Yeni grup oluşturma modalı. */}
+      {/* Grup yönetimi modalı: yeni grup oluşturma + mevcut grupları silme. */}
       <Modal
-        title="Yeni Grup"
+        title="Gruplar"
         open={groupModalOpen}
         onCancel={() => {
           setGroupModalOpen(false)
@@ -320,7 +387,7 @@ function UserManagementPage() {
         onOk={() => groupForm.submit()}
         confirmLoading={creatingGroup}
         okText="Oluştur"
-        cancelText="Vazgeç"
+        cancelText="Kapat"
       >
         <Form form={groupForm} layout="vertical" onFinish={handleCreateGroup}>
           <Form.Item
@@ -330,6 +397,88 @@ function UserManagementPage() {
           >
             <Input placeholder="Örn. İK" autoFocus />
           </Form.Item>
+        </Form>
+
+        {groups.length > 0 && (
+          <>
+            <Divider style={{ margin: '8px 0 16px' }} />
+            <Text type="secondary" style={{ fontSize: 13 }}>
+              Mevcut gruplar
+            </Text>
+            <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {groups.map((g) => (
+                <div
+                  key={g.id}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '6px 10px',
+                    background: '#fafafa',
+                    borderRadius: 6,
+                  }}
+                >
+                  <span>{g.name}</span>
+                  <Popconfirm
+                    title="Bu grubu silmek istediğinizden emin misiniz?"
+                    description={
+                      <span style={{ maxWidth: 280, display: 'inline-block' }}>
+                        Bu gruba bağlı süreç adımları varsa sorumlu/eskalasyon grubu
+                        boşalır — o adımda herkes işlem yapabilir hale gelir.
+                      </span>
+                    }
+                    onConfirm={() => handleDeleteGroup(g)}
+                    okText="Sil"
+                    okButtonProps={{ danger: true }}
+                    cancelText="Vazgeç"
+                  >
+                    <Button
+                      size="small"
+                      type="text"
+                      danger
+                      icon={<DeleteOutlined />}
+                      loading={deletingGroupId === g.id}
+                    />
+                  </Popconfirm>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </Modal>
+
+      {/* Yeni kullanıcı oluşturma modalı. */}
+      <Modal
+        title="Yeni Kullanıcı"
+        open={userModalOpen}
+        onCancel={() => {
+          setUserModalOpen(false)
+          userForm.resetFields()
+        }}
+        onOk={() => userForm.submit()}
+        confirmLoading={creatingUser}
+        okText="Oluştur"
+        cancelText="Vazgeç"
+      >
+        <Form form={userForm} layout="vertical" onFinish={handleCreateUser}>
+          <Form.Item
+            name="username"
+            label="Kullanıcı Adı"
+            rules={[{ required: true, message: 'Kullanıcı adı zorunludur.' }]}
+          >
+            <Input placeholder="Örn. ik_user" autoFocus />
+          </Form.Item>
+          <Form.Item
+            name="password"
+            label="Şifre"
+            rules={[{ required: true, message: 'Şifre zorunludur.' }]}
+          >
+            <Input.Password placeholder="En az 8 karakter" />
+          </Form.Item>
+          <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 0 }}>
+            Oluşturduktan sonra kullanıcıyı gruplara ve iş başlatma yetkisine, aşağıdaki
+            tablodan atayabilirsiniz.
+          </Typography.Paragraph>
         </Form>
       </Modal>
     </>

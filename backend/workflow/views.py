@@ -25,6 +25,7 @@ from .serializers import (
     GroupSerializer,
     NotificationSerializer,
     UserBasicSerializer,
+    UserCreateSerializer,
     UserWithGroupsSerializer,
     WorkflowActionSerializer,
     WorkflowDefinitionSerializer,
@@ -546,9 +547,10 @@ def _require_staff(request):
         raise PermissionDenied('Bu işlem için yetkiniz yok.')
 
 
-class UserViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+class UserViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
     """GET /api/users/ — aktif kullanıcı listesi + Rol/Yetki Yönetimi ekranı için
-    grup/izin/hesap durumu güncelleme aksiyonları.
+    grup/izin/hesap durumu güncelleme aksiyonları. POST /api/users/ — yeni kullanıcı
+    hesabı açar (Django admin'e gitmeye gerek kalmasın diye eklendi).
 
     GET /api/users/ İKİ FARKLI görünüm döner (get_serializer_class):
       - Normal kullanıcı: sade id+username, YALNIZCA aktif hesaplar (mevcut/eski
@@ -559,16 +561,32 @@ class UserViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         ekranı. Pasif kullanıcılar da DAHİL: aksi halde bir hesap pasife alınınca
         staff onu ne listede görebilir ne de tekrar aktif yapabilirdi.
 
-    PATCH /api/users/{id}/groups/, /permissions/ ve /active/ SADECE staff/superuser
-    kullanabilir (_require_staff, 403 fırlatır).
+    POST /api/users/ ve PATCH /api/users/{id}/groups/, /permissions/, /active/
+    SADECE staff/superuser kullanabilir (_require_staff, 403 fırlatır).
     """
 
     queryset = User.objects.all().order_by('username')
 
     def get_serializer_class(self):
+        if self.action == 'create':
+            return UserCreateSerializer
         if self.request.user.is_staff or self.request.user.is_superuser:
             return UserWithGroupsSerializer
         return UserBasicSerializer
+
+    def create(self, request, *args, **kwargs):
+        """POST /api/users/ — Body: {"username": "...", "password": "..."}.
+
+        Yeni kullanıcı, gruba/izne atanmadan (staff sonradan Gruplar/İş Başlatabilir
+        sütunlarından ayarlar), aktif olarak oluşturulur. Yanıt UserWithGroupsSerializer
+        ile döner ki frontend tabloya doğrudan ekleyebilsin (groups: [], can_create_
+        instance: false gibi diğer satırlarla aynı alan setiyle)."""
+        _require_staff(request)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        output_serializer = UserWithGroupsSerializer(user, context=self.get_serializer_context())
+        return Response(output_serializer.data, status=status.HTTP_201_CREATED)
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -673,23 +691,34 @@ class UserViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         return Response(serializer.data)
 
 
-class GroupViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
+class GroupViewSet(
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
     """GET /api/groups/ — basit grup listesi (id+name) + Rol/Yetki Yönetimi ekranı
-    için grup bazlı süreç yetkisi aksiyonları. POST /api/groups/ — yeni grup oluşturma
-    (Kullanıcı Yönetimi ekranı, "Sorumlu Grup" seçimi için artık Django admin'e
-    gitmeye gerek kalmasın diye eklendi).
+    için grup bazlı süreç yetkisi aksiyonları. POST/DELETE /api/groups/ — grup
+    oluşturma/silme (Kullanıcı Yönetimi ekranı, Django admin'e gitmeye gerek
+    kalmasın diye eklendi).
 
     Liste (GET) kısıtlama yok: grup adlarının görünmesi zararsız, veri değiştirmiyor.
-    POST /definitions/ ve GET /definition_matrix/ SADECE staff/superuser kullanabilir.
-    Silme YOK: bir grup WorkflowStep.responsible_group veya delegasyonlarda kullanılıyor
-    olabilir, silme davranışı (PROTECT/CASCADE) ayrı bir karar gerektirir — kapsam dışı.
+    POST/DELETE, /definitions/ ve GET /definition_matrix/ SADECE staff/superuser
+    kullanabilir.
+
+    Silme davranışı bilerek PROTECT DEĞİL: WorkflowStep.responsible_group ve
+    escalation_group SET_NULL (adım sorumlu grupsuz kalır, kısıt kalkar — bkz.
+    can_user_perform: responsible_group None ise herkes yapabilir),
+    GroupDefinitionPermission.group CASCADE (o grubun süreç kısıtlamaları silinir).
+    Yani bir grubu silmek hiçbir kaydı kilitlemez ama adımların yetki kapısını
+    açabilir — bunu frontend silme onayında kullanıcıya açıkça söylüyoruz.
     """
 
     queryset = Group.objects.all().order_by('name')
     serializer_class = GroupSerializer
 
     def get_permissions(self):
-        if self.action == 'create':
+        if self.action in ('create', 'destroy'):
             _require_staff(self.request)
         return [IsAuthenticated()]
 
