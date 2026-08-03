@@ -43,7 +43,7 @@ const baseMenuItems = [
   {
     key: '/delegations',
     icon: <SwapOutlined />,
-    label: <Link to="/delegations">Vekalet</Link>,
+    label: <Link to="/delegations">Vekaletlerim</Link>,
   },
   {
     key: '/analytics',
@@ -78,29 +78,15 @@ const adminMenuItems = [
 ]
 
 // URL yoluna göre breadcrumb öğelerini üretir.
+//
+// Yalnızca GERÇEK bir hiyerarşi varsa (üst sayfası olan alt sayfalarda) öğe döner.
+// Üst seviye sayfalarda boş dizi döner: her sayfanın zaten kendi başlığı var, tek
+// öğelik bir breadcrumb aynı metni ikinci kez yazmaktan başka bir işe yaramıyordu.
 function getBreadcrumbItems(pathname) {
   if (pathname.startsWith('/instances/')) {
     return [{ title: <Link to="/">İş Akışlarım</Link> }, { title: 'İş Detayı' }]
   }
-  if (pathname.startsWith('/delegations')) {
-    return [{ title: 'Vekaletlerim' }]
-  }
-  if (pathname.startsWith('/analytics')) {
-    return [{ title: 'Panom' }]
-  }
-  if (pathname.startsWith('/diagram')) {
-    return [{ title: 'Süreç Şeması' }]
-  }
-  if (pathname.startsWith('/users')) {
-    return [{ title: 'Rol Yönetimi' }]
-  }
-  if (pathname.startsWith('/definition-permissions')) {
-    return [{ title: 'Süreç Yetkileri' }]
-  }
-  if (pathname.startsWith('/process-designer')) {
-    return [{ title: 'Süreç Tasarla' }]
-  }
-  return [{ title: 'İş Akışlarım' }]
+  return []
 }
 
 // Giriş sonrası ortak sayfa iskeleti: sol sidebar (marka + menü) + dar üst header
@@ -350,8 +336,9 @@ function AppLayout({ children }) {
             boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
           }}
         >
-          {/* Solda: breadcrumb (mevcut sayfaya göre). */}
-          <Breadcrumb items={breadcrumbItems} />
+          {/* Solda: breadcrumb — yalnızca alt sayfalarda (üst sayfaya dönüş bağlantısı
+              sunduğu için). Üst seviye sayfalarda hiç render edilmez. */}
+          {breadcrumbItems.length > 0 ? <Breadcrumb items={breadcrumbItems} /> : <span />}
 
           {/* Sağda: bell ikonu (bildirimler) + kullanıcı avatarı/dropdown (çıkış). */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>

@@ -17,7 +17,7 @@ import {
 import { PlusOutlined, DeleteOutlined, SwapOutlined } from '@ant-design/icons'
 import api from '../api.js'
 
-const { Title } = Typography
+const { Title, Text } = Typography
 
 // Kartlara/tabloya hafif derinlik hissi veren ortak gölge (diğer sayfalarla tutarlı).
 const CARD_SHADOW = '0 1px 4px rgba(0, 0, 0, 0.08)'
@@ -254,22 +254,22 @@ function DelegationPage() {
           marginBottom: 24,
         }}
       >
-        <Title level={3} style={{ margin: 0 }}>
-          <SwapOutlined style={{ marginRight: 8 }} />
-          Vekaletlerim
-        </Title>
+        <div>
+          <Title level={3} style={{ margin: 0 }}>
+            <SwapOutlined style={{ marginRight: 8 }} />
+            Vekaletlerim
+          </Title>
+          {/* Açıklama, diğer ekranlarla aynı desende: mavi bilgi kutusu yerine
+              başlığın altında sade bir alt satır — dikey alan yemez, uyarı gibi durmaz. */}
+          <Text type="secondary" style={{ fontSize: 13 }}>
+            İzinli olduğunuz dönemde işlerinize bakacak kişiyi belirleyin; vekiliniz siz
+            yokken sizin adınıza işlem yapabilir
+          </Text>
+        </div>
         <Button type="primary" icon={<PlusOutlined />} onClick={openModal}>
           Yeni Vekalet
         </Button>
       </div>
-
-      {/* Bilgilendirme mesajı. */}
-      <Alert
-        type="info"
-        message="İzinli olduğunuz dönemde işlerinize bakacak kişiyi belirleyin. Vekiliniz, siz yokken sizin adınıza işlem yapabilir."
-        showIcon
-        style={{ marginBottom: 24 }}
-      />
 
       {/* Vekalet tablosu. */}
       <div

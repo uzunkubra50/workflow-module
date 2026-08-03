@@ -5,7 +5,7 @@ import { Background, Controls, Handle, MarkerType, Position, ReactFlow } from '@
 import '@xyflow/react/dist/style.css'
 import api from '../api.js'
 
-const { Title } = Typography
+const { Title, Text } = Typography
 
 // Kartlara/tabloya hafif derinlik hissi veren ortak gölge (diğer sayfalarla tutarlı).
 const CARD_SHADOW = '0 1px 4px rgba(0, 0, 0, 0.08)'
@@ -202,12 +202,16 @@ function ProcessDiagramPage() {
 
   return (
     <>
-      {/* Başlık bandı. */}
+      {/* Başlık bandı — ekranın ne gösterdiğini tek cümleyle anlatan alt başlıkla. */}
       <div style={{ marginBottom: 24 }}>
         <Title level={3} style={{ margin: 0 }}>
           <PartitionOutlined style={{ marginRight: 8 }} />
           Süreç Şeması
         </Title>
+        <Text type="secondary" style={{ fontSize: 13 }}>
+          Seçtiğiniz sürecin adımlarını ve aralarındaki izinli geçişleri akış
+          diyagramı olarak gösterir (salt görüntüleme)
+        </Text>
       </div>
 
       {/* Süreç seçimi. */}

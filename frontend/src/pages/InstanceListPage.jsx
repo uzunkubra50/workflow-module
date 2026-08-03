@@ -21,7 +21,6 @@ import {
   message,
 } from 'antd'
 import {
-  ApartmentOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
   CloseCircleOutlined,
@@ -33,7 +32,7 @@ import {
 } from '@ant-design/icons'
 import api from '../api.js'
 
-const { Title } = Typography
+const { Title, Text } = Typography
 const { Search } = Input
 
 // status koduna göre Tag rengi (doküman 2.1: Aktif mavi, Tamamlandı yeşil;
@@ -58,34 +57,57 @@ const STATUS_ICONS = {
 // Kartlara/tabloya hafif derinlik hissi veren ortak gölge.
 const CARD_SHADOW = '0 1px 4px rgba(0, 0, 0, 0.08)'
 
+// Metin sütunları için Türkçe'ye duyarlı sıralayıcı (ç/ğ/ı/ö/ş/ü doğru sıralansın).
+const trSorter = (key) => (a, b) => (a[key] || '').localeCompare(b[key] || '', 'tr')
+
 // Tablo sütunları. Bileşen dışında sabit tanımlı — her render'da yeniden üretilmez.
+// Sütunlar sıralanabilir: kurumsal listelerde kullanıcı kendi önceliğine göre
+// (en yeni iş, sürece göre gruplu vb.) düzenleyebilmeyi bekler.
 const columns = [
   {
     title: 'Konu',
     dataIndex: 'subject',
     key: 'subject',
-    // Konu biraz vurgulu.
-    render: (value) => <span style={{ fontWeight: 500 }}>{value}</span>,
+    // Konu birincil bilgi — vurgulu ve koyu.
+    render: (value) => <span style={{ fontWeight: 600, color: '#1f2937' }}>{value}</span>,
+    sorter: trSorter('subject'),
   },
   {
     title: 'Süreç',
     dataIndex: 'definition',
     key: 'definition',
-    // Süreç adının başında soluk bir hiyerarşi ikonu.
-    render: (value) => (
-      <span>
-        <ApartmentOutlined style={{ color: 'rgba(0,0,0,0.25)', marginRight: 6 }} />
-        {value}
-      </span>
-    ),
+    // İkincil bilgi: hafif soluk — göz önce Konu'ya gitsin.
+    render: (value) => <span style={{ color: 'rgba(0,0,0,0.65)' }}>{value}</span>,
+    sorter: trSorter('definition'),
   },
-  { title: 'Mevcut Adım', dataIndex: 'current_step', key: 'current_step' },
+  {
+    title: 'Mevcut Adım',
+    dataIndex: 'current_step',
+    key: 'current_step',
+    sorter: trSorter('current_step'),
+  },
   {
     title: 'Belge',
     dataIndex: 'document_ref',
     key: 'document_ref',
-    // Belge bağlantısı boşsa tire göster.
-    render: (value) => value || '—',
+    // Belge referansı bir kayıt numarası — eşit genişlikli (monospace) font ile
+    // rakamlar alt alta hizalanır, resmi evrak kodu gibi okunur.
+    render: (value) =>
+      value ? (
+        <span
+          style={{
+            fontFamily: "'SFMono-Regular', Consolas, 'Liberation Mono', monospace",
+            fontSize: 12.5,
+            color: 'rgba(0,0,0,0.65)',
+            letterSpacing: 0.2,
+          }}
+        >
+          {value}
+        </span>
+      ) : (
+        <span style={{ color: 'rgba(0,0,0,0.25)' }}>—</span>
+      ),
+    sorter: trSorter('document_ref'),
   },
   {
     title: 'Durum',
@@ -107,22 +129,36 @@ const columns = [
         )}
       </>
     ),
+    sorter: trSorter('status_display'),
   },
   {
     title: 'Oluşturulma',
     dataIndex: 'created_at',
     key: 'created_at',
     // Sunucu ISO 8601 (UTC) gönderir; tarayıcının yerel saatine çevrilip gösterilir.
-    render: (value) =>
-      value
-        ? new Date(value).toLocaleString('tr-TR', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-          })
-        : '—',
+    // Tarih ve saat iki satıra ayrıldı: tarihler alt alta taranabilir kalsın,
+    // saat ikincil bilgi olarak soluk dursun.
+    render: (value) => {
+      if (!value) return <span style={{ color: 'rgba(0,0,0,0.25)' }}>—</span>
+      const d = new Date(value)
+      return (
+        <div style={{ lineHeight: 1.35 }}>
+          <div>
+            {d.toLocaleDateString('tr-TR', {
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric',
+            })}
+          </div>
+          <div style={{ fontSize: 12, color: 'rgba(0,0,0,0.45)' }}>
+            {d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+          </div>
+        </div>
+      )
+    },
+    // Tarih sıralaması metin değil zaman damgası üzerinden yapılmalı.
+    sorter: (a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0),
+    defaultSortOrder: 'descend',
   },
 ]
 
@@ -457,9 +493,16 @@ function InstanceListPage() {
           marginBottom: 24,
         }}
       >
-        <Title level={3} style={{ margin: 0 }}>
-          İş Akışlarım
-        </Title>
+        <div>
+          <Title level={3} style={{ margin: 0 }}>
+            İş Akışlarım
+          </Title>
+          {/* Ekranın ne gösterdiğini tek cümleyle anlatan alt başlık — kurumsal
+              panellerde standart, yeni kullanıcının ekranı tanımasını kolaylaştırır. */}
+          <Text type="secondary" style={{ fontSize: 13 }}>
+            Size ve grubunuza atanan işler ile işlem yaptığınız işler
+          </Text>
+        </div>
         <div style={{ display: 'flex', gap: 12 }}>
           {/* CSV dışa aktarma: o an filtrelenmiş (görüntülenen) işleri indirir. */}
           <Button icon={<DownloadOutlined />} onClick={handleExportCsv}>
@@ -565,11 +608,21 @@ function InstanceListPage() {
             }}
           >
             <Table
+              className="corporate-table"
               columns={columns}
               dataSource={filteredInstances}
               rowKey="id"
               // Filtre sonucu boşsa özel boş durum.
               locale={{ emptyText: <Empty description="Bu filtrede iş yok" /> }}
+              // Kurumsal listelerde kaç kayıt görüntülendiği açıkça yazılır;
+              // sayfa boyutu da kullanıcıya bırakılır.
+              pagination={{
+                showTotal: (total, range) =>
+                  `${range[0]}–${range[1]} / toplam ${total} kayıt`,
+                showSizeChanger: true,
+                pageSizeOptions: ['10', '20', '50'],
+                defaultPageSize: 10,
+              }}
               // Satıra tıklayınca detaya git + tıklanabilir imleç.
               onRow={(record) => ({
                 onClick: () => navigate(`/instances/${record.id}`),

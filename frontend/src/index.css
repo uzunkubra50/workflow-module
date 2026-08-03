@@ -46,3 +46,113 @@ body {
 .ant-table-tbody > tr.ant-table-row > td {
   transition: background-color 0.2s ease;
 }
+
+/* --- Kurumsal tablo: başlık satırı küçük büyük harf + harf aralığı --- */
+
+/* Kurumsal raporlama ekranlarında sütun başlıkları veriden net ayrışır: küçük punto,
+   büyük harf ve artırılmış harf aralığı. Böylece göz başlık satırını "etiket" olarak
+   okur, veriyle karıştırmaz. */
+.corporate-table .ant-table-thead > tr > th {
+  background: #fafbfc;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(0, 0, 0, 0.55);
+}
+
+/* Satır ayırıcıları biraz daha soluk — yoğun listede çizgi gürültüsü azalır. */
+.corporate-table .ant-table-tbody > tr > td {
+  border-bottom-color: #f2f4f7;
+}
+
+/* antd, sıralanan sütunun tamamını gri zeminle vurgular. Varsayılan olarak tarihe
+   göre sıralı açıldığımız için bu, o sütunu yanlışlıkla seçilmiş gibi gösteriyordu.
+   Vurguyu kaldırıyoruz — sıralamanın hangi sütunda olduğu başlıktaki ok zaten belli eder. */
+.corporate-table .ant-table-tbody > tr > td.ant-table-column-sort {
+  background: transparent;
+}
+.corporate-table .ant-table-thead > tr > th.ant-table-column-sort {
+  background: #fafbfc;
+}
+
+/* Satır üzerine gelince sol kenarda ince lacivert bir vurgu şeridi belirir:
+   hangi satırda olduğun net, tıklanabilir olduğu hissi güçlenir. */
+.corporate-table .ant-table-tbody > tr > td:first-child {
+  box-shadow: inset 3px 0 0 transparent;
+  transition: box-shadow 0.15s ease;
+}
+.corporate-table .ant-table-tbody > tr:hover > td:first-child {
+  box-shadow: inset 3px 0 0 #1e3a5f;
+}
+
+/* --- Giriş ekranı: sol panelin hafif giriş animasyonu ve ikon canlanması --- */
+@keyframes loginFadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes loginFloat {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+.login-fade-in {
+  animation: loginFadeInUp 0.6s ease both;
+}
+
+.login-icon-badge {
+  animation: loginFloat 4s ease-in-out infinite;
+}
+
+/* Başlık/alt metin bloğu: giriş animasyonu bittikten sonra da sürekli hafifçe
+   yukarı-aşağı süzülür ("nefes alma" hissi) - panel durağan kalmasın diye. */
+@keyframes loginBreathe {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+.login-breathe {
+  animation: loginBreathe 5s ease-in-out infinite;
+}
+
+/* Özellik listesindeki ikon rozetleri sırayla "aydınlanır" - sanki adım adım
+   ilerleyen bir süreci işaret ediyormuş gibi, sürekli tekrar eden bir tur atar. */
+@keyframes loginStepPulse {
+  0%,
+  100% {
+    background: rgba(255, 255, 255, 0.08);
+    box-shadow: none;
+    transform: scale(1);
+  }
+  8% {
+    background: rgba(127, 212, 255, 0.45);
+    box-shadow: 0 0 14px rgba(127, 212, 255, 0.5);
+    transform: scale(1.18);
+  }
+  16% {
+    background: rgba(255, 255, 255, 0.08);
+    box-shadow: none;
+    transform: scale(1);
+  }
+}
+
+.login-step-pulse {
+  animation: loginStepPulse 3.6s ease-in-out infinite;
+}

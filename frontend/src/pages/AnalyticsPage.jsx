@@ -13,7 +13,7 @@ import {
 } from 'recharts'
 import api from '../api.js'
 
-const { Title } = Typography
+const { Title, Text } = Typography
 
 // Kartlara/tabloya hafif derinlik hissi veren ortak gölge (diğer sayfalarla tutarlı).
 const CARD_SHADOW = '0 1px 4px rgba(0, 0, 0, 0.08)'
@@ -104,12 +104,16 @@ function AnalyticsPage() {
 
   return (
     <>
-      {/* Başlık bandı. */}
+      {/* Başlık bandı — ekranın ne gösterdiğini tek cümleyle anlatan alt başlıkla. */}
       <div style={{ marginBottom: 24 }}>
         <Title level={3} style={{ margin: 0 }}>
           <BarChartOutlined style={{ marginRight: 8 }} />
           Panom
         </Title>
+        <Text type="secondary" style={{ fontSize: 13 }}>
+          Seçtiğiniz süreçte işlerin hangi adımda biriktiğini, nerede geciktiğini ve
+          adımların ortalama ne kadar sürdüğünü gösterir
+        </Text>
       </div>
 
       {/* Süreç seçimi. */}

@@ -3,7 +3,7 @@ import { Alert, Checkbox, Spin, Table, Typography, message } from 'antd'
 import { FileProtectOutlined } from '@ant-design/icons'
 import api from '../api.js'
 
-const { Title } = Typography
+const { Title, Text } = Typography
 
 // Kartlara/tabloya hafif derinlik hissi veren ortak gölge (diğer sayfalarla tutarlı).
 const CARD_SHADOW = '0 1px 4px rgba(0, 0, 0, 0.08)'
@@ -127,12 +127,17 @@ function DefinitionPermissionsPage() {
 
   return (
     <>
-      {/* Başlık bandı. */}
+      {/* Başlık bandı — diğer ekranlarla aynı desende alt başlık. Aşağıdaki Alert
+          burada KALIYOR: sezgisel olmayan bir kuralı (işaretsiz süreç = herkese
+          açık) anlattığı için vurgulu durması gerekiyor, sade bir alt satır yetmez. */}
       <div style={{ marginBottom: 16 }}>
         <Title level={3} style={{ margin: 0 }}>
           <FileProtectOutlined style={{ marginRight: 8 }} />
-          Süreç Başlatma Yetkileri
+          Süreç Yetkileri
         </Title>
+        <Text type="secondary" style={{ fontSize: 13 }}>
+          Hangi grubun hangi süreçte yeni iş başlatabileceğini belirleyin
+        </Text>
       </div>
 
       {/* Bilgilendirme mesajı. */}
