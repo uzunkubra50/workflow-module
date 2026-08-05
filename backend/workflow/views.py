@@ -7,7 +7,7 @@ from django.db.models import ProtectedError, Q
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.generics import get_object_or_404
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 
 from . import services
@@ -37,6 +37,27 @@ from .serializers import (
     WorkflowStepWriteSerializer,
     WorkflowTransitionWriteSerializer,
 )
+
+
+class IsStaffUser(BasePermission):
+    """Staff/superuser zorunluluğu — DRF'nin standart izin sınıfı olarak.
+
+    NEDEN AYRI BİR SINIF: Bu kural önce get_permissions() içinden _require_staff()
+    çağrılarak uygulanıyordu, yani izin listesi DÖNDÜRÜLECEK yerde oradan exception
+    fırlatılıyordu. Çalışma zamanında doğru sonucu veriyordu ama drf-spectacular
+    şemayı üretirken her view'ın get_permissions()'ını (istek olmadan) çağırdığı için
+    o çağrı da PermissionDenied yiyordu ve TÜM /api/schema/ ucu 403 dönüyordu —
+    Swagger sayfası "Failed to load API definition" hatası veriyordu.
+
+    Ders: get_permissions() yan etkili olmamalı, sadece izin nesnelerini döndürmeli;
+    reddetme işini DRF'nin kendi has_permission döngüsü yapmalı.
+    """
+
+    message = 'Bu işlem için yetkiniz yok.'
+
+    def has_permission(self, request, view):
+        user = getattr(request, 'user', None)
+        return bool(user and (user.is_staff or user.is_superuser))
 
 
 class WorkflowInstanceViewSet(
@@ -262,11 +283,9 @@ class WorkflowDefinitionViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         """list/retrieve: herkese açık (IsAuthenticated yeterli). create/update/
-        partial_update/destroy: SADECE staff/superuser — _require_staff PermissionDenied
-        fırlatır, DRF'nin dispatch() döngüsü bunu otomatik 403'e çevirir (perform_create
-        gibi imperatif çağrılardaki AYNI mekanizma, burada get_permissions üzerinden)."""
+        partial_update/destroy: SADECE staff/superuser (IsStaffUser)."""
         if self.action in ('create', 'update', 'partial_update', 'destroy'):
-            _require_staff(self.request)
+            return [IsAuthenticated(), IsStaffUser()]
         return [IsAuthenticated()]
 
     def get_queryset(self):
@@ -414,8 +433,7 @@ class WorkflowStepAdminViewSet(viewsets.ModelViewSet):
     serializer_class = WorkflowStepWriteSerializer
 
     def get_permissions(self):
-        _require_staff(self.request)
-        return [IsAuthenticated()]
+        return [IsAuthenticated(), IsStaffUser()]
 
     def destroy(self, request, *args, **kwargs):
         """Bu adıma bağlı (current_step, on_delete=PROTECT — Karar 8) aktif
@@ -442,8 +460,7 @@ class WorkflowTransitionAdminViewSet(viewsets.ModelViewSet):
     serializer_class = WorkflowTransitionWriteSerializer
 
     def get_permissions(self):
-        _require_staff(self.request)
-        return [IsAuthenticated()]
+        return [IsAuthenticated(), IsStaffUser()]
 
     def destroy(self, request, *args, **kwargs):
         """WorkflowAction, transition'dan action_type/action_name'i KOPYALAR (FK
@@ -719,7 +736,7 @@ class GroupViewSet(
 
     def get_permissions(self):
         if self.action in ('create', 'destroy'):
-            _require_staff(self.request)
+            return [IsAuthenticated(), IsStaffUser()]
         return [IsAuthenticated()]
 
     @action(detail=True, methods=['patch'], url_path='definitions')
