@@ -107,9 +107,11 @@ class WorkflowInstanceViewSet(
         görünmüyordu: kullanıcı butonu görebilecek olduğu işe erişemiyordu, çünkü
         işi listede hiç bulamıyordu.
 
-        AÇIK KALAN NOKTA: bir işi açıp hiç işlem yapmayan kullanıcı onu göremez —
-        ne created_by alanı var, ne assigned_to dolduruluyor. Bu bir kapsam sorusu,
-        cevap gelince ele alınacak.
+        AÇIK KALAN NOKTA: created_by alanı artık VAR ve iş açılırken dolduruluyor,
+        ancak bu filtre henüz onu ölçüt olarak kullanmıyor. Dolayısıyla bir işi açıp
+        hiç işlem yapmayan ve sorumlu grupta da olmayan kullanıcı, açtığı işi listede
+        göremiyor. Aşağıdaki Q(...) zincirine Q(created_by=user) eklemek yeterli;
+        bir kapsam sorusu olarak duruyor, cevap gelince ele alınacak.
         """
         queryset = super().get_queryset()
 
